@@ -1,26 +1,44 @@
 @import "tailwindcss";
 
+/* 1. DICIAMO A TAILWIND DI ASCOLTARE LA CLASSE .dark PER IL TEMA SCURO */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* 2. INSEGNIAMO I COLORI A TAILWIND V4 */
+@theme {
+  --color-base: var(--bg-base);
+  --color-surface: var(--bg-surface);
+  --color-main: var(--text-main);
+  --color-muted: var(--text-muted);
+  --color-brand: var(--brand-accent);
+  --color-line: var(--border-line);
+  --color-pastel: var(--color-pastel-fixed);
+}
+
+/* 3. TEMA CHIARO (I tuoi colori "Chef") */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg-base: #f2f0e9;       /* Bianco sporco / Carta */
+  --bg-surface: #e8e5db;    /* Leggermente più scuro per i riquadri */
+  --text-main: #1a1a1a;     /* Nero morbido */
+  --text-muted: #666666;    /* Grigio scuro per testi secondari */
+  --brand-accent: #ff331f;  /* Rosso acceso */
+  --border-line: #000000;   /* Linee nere */
+  
+  --color-pastel-fixed: #EFA0A0;  /* Rosa pastello INVARIATO */
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* 4. TEMA SCURO (I tuoi colori originali) */
+.dark {
+  --bg-base: #0D0D0D;
+  --bg-surface: #1A1A24;
+  --text-main: #ffffff;
+  --text-muted: rgba(255, 255, 255, 0.4);
+  --brand-accent: #804CD9;  /* Viola */
+  --border-line: rgba(255, 255, 255, 0.1);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/* Sfondo generale dinamico (si anima fluidamente al cambio tema) */
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--bg-base);
+  color: var(--text-main);
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
