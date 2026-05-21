@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { ChevronLeft, Play, Dumbbell, CheckCircle2, X, GripVertical, Trophy } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import Spinner from "@/components/Spinner";
+// IMPORTAZIONE DEL MOTORE AUDIO
+import { initAudioContext, loadAudioFile } from "@/utils/audioEngine";
 
 type Giorno = { id_giorno: number; nome_giorno: string; ordine: number; id_template: string; };
 type Template = { id_template: string; nome_template: string; id_categoria: string | null; Giorni_Template: Giorno[]; };
@@ -144,6 +146,9 @@ export default function StartWorkoutPage() {
   const [previewExercises, setPreviewExercises] = useState<any[]>([]);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
+  
+  // STATO PER IL RECUPERO DELLA SESSIONE INTERROTTA
+  const [hasSavedWorkout, setHasSavedWorkout] = useState(false);
 
   // Calcolo matematico del lunedì corrente alle ore 00:00:00
   const getMostRecentMondayISO = () => {
@@ -156,6 +161,12 @@ export default function StartWorkoutPage() {
   };
 
   useEffect(() => {
+    // Controllo se iOS ha killato l'app in precedenza
+    const savedSession = localStorage.getItem("gymking_active_session");
+    if (savedSession) {
+      setHasSavedWorkout(true);
+    }
+
     async function fetchDashboardData() {
       setIsLoading(true);
       try {
@@ -227,8 +238,26 @@ export default function StartWorkoutPage() {
     }
   };
 
+  // === GESTIONE NUOVA/VECCHIA SESSIONE ===
   const startFreeWorkout = () => {
+    initAudioContext();
+    loadAudioFile("/sounds/gong.mp3");
+    localStorage.removeItem("gymking_active_session"); // Pulisce allenamenti morti
     router.push(`/active-workout`);
+  };
+
+  const handleStartTemplateWorkout = () => {
+    initAudioContext();
+    loadAudioFile("/sounds/gong.mp3");
+    localStorage.removeItem("gymking_active_session"); // Pulisce allenamenti morti
+    setCountdown(3);
+  };
+
+  const handleResumeWorkout = () => {
+    initAudioContext();
+    loadAudioFile("/sounds/gong.mp3");
+    // Non azzera il localStorage, naviga direttamente per riprendere lo stato
+    router.push("/active-workout");
   };
 
   return (
@@ -254,6 +283,30 @@ export default function StartWorkoutPage() {
 
       <div className="w-full max-w-2xl flex flex-col gap-14 relative z-10">
         
+        {/* === BANNER RIPRISTINO ALLENAMENTO === */}
+        {hasSavedWorkout && (
+          <div className="border-4 border-brand bg-brand/10 p-5 shadow-[6px_6px_0px_#000000] dark:shadow-[6px_6px_0px_#804CD9] flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-brand"></span>
+              </span>
+              <h2 className="text-xl font-black uppercase font-heading text-main">
+                Allenamento Sospeso
+              </h2>
+            </div>
+            <p className="text-sm font-bold text-muted">
+              L'applicazione è stata chiusa in precedenza. Riprendi da dove hai lasciato senza perdere i dati.
+            </p>
+            <button
+              onClick={handleResumeWorkout}
+              className="mt-2 w-full border-2 border-line bg-main text-base p-4 font-black uppercase tracking-widest shadow-[4px_4px_0px_#000000] dark:shadow-[4px_4px_0px_#804CD9] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none transition-all"
+            >
+              Riprendi Sessione
+            </button>
+          </div>
+        )}
+
         {isLoading ? (
           <div className="flex justify-center mt-20"><Spinner size={64} /></div>
         ) : !templateCorrente ? (
@@ -339,7 +392,7 @@ export default function StartWorkoutPage() {
 
               <div className="pt-4 shrink-0 pb-6">
                  <button 
-                   onClick={() => setCountdown(3)} 
+                   onClick={handleStartTemplateWorkout} 
                    disabled={isLoadingPreview || previewExercises.length === 0} 
                    className="w-full py-6 bg-brand border-2 border-line text-base font-black uppercase tracking-widest text-3xl shadow-[8px_8px_0px_#000000] dark:shadow-[8px_8px_0px_#804CD9] hover:-translate-y-1 hover:shadow-[10px_10px_0px_#000000] dark:hover:shadow-[10px_10px_0px_#804CD9] active:translate-x-[8px] active:translate-y-[8px] active:shadow-none transition-all disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-[8px_8px_0px_#000000] disabled:active:translate-x-0 disabled:active:translate-y-0"
                  >

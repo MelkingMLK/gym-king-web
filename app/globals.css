@@ -13,7 +13,11 @@
   --color-line: var(--border-line);
   --color-pastel: var(--color-pastel-fixed);
 }
-
+@media (max-width: 768px) {
+  html {
+    font-size: 13px; /* O 12px se lo vedi ancora troppo grande */
+  }
+}
 /* 3. TEMA CHIARO (I tuoi colori "Chef") */
 :root {
   --bg-base: #f2f0e9;       /* Bianco sporco / Carta */

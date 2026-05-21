@@ -5,10 +5,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, Check, Trophy, X, Plus, MoreHorizontal, PlayCircle, ChevronDown } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import Fuse from "fuse.js";
+import { playSound } from "@/utils/audioEngine"; // INIEZIONE MOTORE AUDIO SICURO
 
 const LOCAL_STORAGE_KEY = "gymking_active_workout";
 
-// === 1. CLESSIDRA ROTANTE ===
+// === COMPONENTI VISIVI === (Invariati)
 const SpinningHourglass = ({ isActive, className = "w-8 h-8 md:w-10 md:h-10" }: { isActive: boolean, className?: string }) => {
   return (
     <div className={`relative ${className}`}>
@@ -26,7 +27,6 @@ const SpinningHourglass = ({ isActive, className = "w-8 h-8 md:w-10 md:h-10" }: 
   );
 };
 
-// === 2. CLESSIDRA A SABBIA ===
 const SandHourglass = ({ progress, isActive, className = "w-32 h-32" }: { progress: number, isActive: boolean, className?: string }) => {
   const p = Math.max(0, Math.min(1, progress));
   return (
@@ -54,32 +54,10 @@ const SandHourglass = ({ progress, isActive, className = "w-32 h-32" }: { progre
   );
 };
 
-// === TIPI STRUTTURATI ===
-type SetData = { 
-  id: string; 
-  reps: string; 
-  weight: string; 
-  completed: boolean; 
-  workDurationSec?: number | null; 
-  actualRestSec?: number | null;    
-  wasteDurationSec?: number | null; 
-  completedAt?: number; 
-};
-
-type ExerciseLog = { 
-  id_scheda_esercizio?: number; 
-  id_esercizio: number; 
-  nome: string; 
-  gif_url?: string; 
-  recupero_sec: number; 
-  target_serie: number; 
-  target_reps: string; 
-  unita_misura: string; 
-  sets: SetData[]; 
-};
-
+// === TIPI STRUTTURATI === (Invariati)
+type SetData = { id: string; reps: string; weight: string; completed: boolean; workDurationSec?: number | null; actualRestSec?: number | null; wasteDurationSec?: number | null; completedAt?: number; };
+type ExerciseLog = { id_scheda_esercizio?: number; id_esercizio: number; nome: string; gif_url?: string; recupero_sec: number; target_serie: number; target_reps: string; unita_misura: string; sets: SetData[]; };
 type EsercizioBase = { id_esercizio: number; nome: string; gif_url?: string; };
-
 type ActiveSet = { exIndex: number; setIndex: number; phase: 'prep' | 'work'; startPrepTime: number; startWorkTime: number | null; };
 type RestingSet = { exIndex: number; setIndex: number; startTs: number; }; 
 
@@ -89,6 +67,7 @@ export default function WorkoutTracker() {
   const dayId = searchParams.get("day");
   const templateId = searchParams.get("template");
 
+  // === STATO PRINCIPALE ===
   const [isLoading, setIsLoading] = useState(true);
   const [exercises, setExercises] = useState<ExerciseLog[]>([]);
   const [workoutName, setWorkoutName] = useState<string>("Allenamento Libero");
@@ -105,73 +84,25 @@ export default function WorkoutTracker() {
   const [activeSet, setActiveSet] = useState<ActiveSet | null>(null);
   const [restingSet, setRestingSet] = useState<RestingSet | null>(null);
 
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [soundSrc, setSoundSrc] = useState("sounds/gong.mp3");
-
   const [tuttiEsercizi, setTuttiEsercizi] = useState<EsercizioBase[]>([]);
   const [isReplaceModalOpen, setIsReplaceModalOpen] = useState(false);
   const [exerciseToReplaceIndex, setExerciseToReplaceIndex] = useState<number | null>(null);
   const [searchText, setSearchText] = useState("");
   const [previewExercise, setPreviewExercise] = useState<ExerciseLog | null>(null);
 
+  // REFS DEI TIMER (Per evitare memory leak e intervalli sovrapposti)
+  const masterTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   const formattedDate = useMemo(() => {
     if (!startTime) return "";
     return new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(startTime));
   }, [startTime]);
 
-  // === NOTIFICHE NATIVE E AUDIO MAPPING ===
-  const playGong = () => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = 0;
-      audioRef.current.play().catch(e => console.log("Riproduzione audio bloccata dal sistema operativo:", e));
-    }
-  };
-
-  const scheduleNativeRestGong = (recuperoSec: number) => {
-    // In produzione con Capacitor:
-    // LocalNotifications.schedule({ notifications: [{ title: "Recupero Terminato!", body: "Torna a spingere Re!", id: 1, schedule: { at: new Date(Date.now() + recuperoSec * 1000) }, sound: soundSrc }] });
-    console.log(`[Capacitor Bridge] Notifica programmata tra ${recuperoSec} secondi.`);
-  };
-
-  const cancelNativeRestGong = () => {
-    // In produzione con Capacitor:
-    // LocalNotifications.cancel({ notifications: [{ id: 1 }] });
-    console.log(`[Capacitor Bridge] Notifica push nativa rimossa.`);
-  };
-
-  // === PAGE VISIBILITY API: PREVIENE IL CONGELAMENTO DEI TIMER IN BACKGROUND ===
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        const now = Date.now();
-        if (startTime) setElapsedTimeDisplay(Math.floor((now - startTime) / 1000));
-
-        if (restEndTime) {
-          const remaining = Math.ceil((restEndTime - now) / 1000);
-          if (remaining <= 0) {
-            // Il recupero è scaduto mentre l'utente era fuori dall'app
-            setRestEndTime(null);
-            setRestTimeDisplay(null);
-            setExtraStartTime(now);
-            setIsRestModalOpen(false);
-            playGong();
-          } else {
-            setRestTimeDisplay(remaining);
-          }
-        }
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [startTime, restEndTime]);
-
-  // CARICAMENTO INIZIALE
+  // === CARICAMENTO INIZIALE (IDRATAZIONE) ===
   useEffect(() => {
     async function loadWorkout() {
       setIsLoading(true);
-      setSoundSrc(localStorage.getItem('gymking_sound') || 'sounds/gong.mp3');
-
+      
       const savedData = localStorage.getItem(LOCAL_STORAGE_KEY);
       if (savedData) {
         try {
@@ -185,12 +116,19 @@ export default function WorkoutTracker() {
             setRestTotalTime(parsed.restTotalTime || null); 
             setActiveSet(parsed.activeSet || null);
             setRestingSet(parsed.restingSet || null);
+            
+            // Forza il ricalcolo immediato del display del timer
+            if (parsed.restEndTime) {
+                const remaining = Math.ceil((parsed.restEndTime - Date.now()) / 1000);
+                setRestTimeDisplay(remaining > 0 ? remaining : null);
+            }
+
             setIsLoading(false);
             const { data: catData } = await supabase.from('Esercizi').select('id_esercizio, nome, gif_url').order('nome');
             if (catData) setTuttiEsercizi(catData as EsercizioBase[]);
             return; 
           }
-        } catch (e) { console.error(e); }
+        } catch (e) { console.error("Corruzione dati salvati", e); }
       }
 
       if (!dayId) { setIsLoading(false); return; }
@@ -225,28 +163,33 @@ export default function WorkoutTracker() {
     loadWorkout();
   }, [dayId]);
 
-  // PERSISTENZA STATO LOCALE
+  // === PERSISTENZA ATOMICA ===
   useEffect(() => {
     if (isLoading || !startTime) return;
     const stateToSave = { templateId, dayId, workoutName, exercises, startTime, restEndTime, extraStartTime, restTotalTime, activeSet, restingSet };
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(stateToSave));
   }, [exercises, restEndTime, extraStartTime, startTime, workoutName, dayId, templateId, isLoading, restTotalTime, activeSet, restingSet]);
 
-  // INTERVALLO DI TICK DEI TIMER
+  // === MOTORE DEL TIMER (Anti-Leak) ===
   useEffect(() => {
     if (!startTime) return;
-    const interval = setInterval(() => {
+    
+    // Uccide timer pregressi in caso di re-render
+    if (masterTimerRef.current) clearInterval(masterTimerRef.current);
+
+    masterTimerRef.current = setInterval(() => {
       const now = Date.now();
       setElapsedTimeDisplay(Math.floor((now - startTime) / 1000));
 
       if (restEndTime) {
         const remaining = Math.ceil((restEndTime - now) / 1000);
         if (remaining <= 0) {
+          // GONG SCADUTO
+          playSound(); // Usa il motore Web Audio API
           setRestEndTime(null); 
           setRestTimeDisplay(null); 
           setExtraStartTime(now); 
           setIsRestModalOpen(false); 
-          playGong();
         } else {
           setRestTimeDisplay(remaining);
         }
@@ -261,11 +204,40 @@ export default function WorkoutTracker() {
         return prev;
       });
     }, 1000);
-    return () => clearInterval(interval);
+
+    // Cleanup: uccide il timer allo smontaggio del componente
+    return () => {
+      if (masterTimerRef.current) clearInterval(masterTimerRef.current);
+    };
   }, [startTime, restEndTime]);
 
+  // Gestione visibilità pagina (iOS Background)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && startTime) {
+        const now = Date.now();
+        setElapsedTimeDisplay(Math.floor((now - startTime) / 1000));
+
+        if (restEndTime) {
+          const remaining = Math.ceil((restEndTime - now) / 1000);
+          if (remaining <= 0) {
+            playSound();
+            setRestEndTime(null);
+            setRestTimeDisplay(null);
+            setExtraStartTime(now);
+            setIsRestModalOpen(false);
+          } else {
+            setRestTimeDisplay(remaining);
+          }
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [startTime, restEndTime]);
+
+  // === AZIONI DI STATO ===
   const commitRestPhase = () => {
-    cancelNativeRestGong();
     if (restingSet) {
       setExercises(prev => {
         const next = [...prev];
@@ -289,8 +261,10 @@ export default function WorkoutTracker() {
       setRestingSet(null);
     }
     
+    // AZZERA LO STATO DEL RECUPERO (RISOLVE IL BUG DELLO SKIP)
     setRestTotalTime(null);
     setRestEndTime(null);
+    setRestTimeDisplay(null); // Questo era mancante
     setExtraStartTime(null);
     setIsRestModalOpen(false);
   };
@@ -326,35 +300,21 @@ export default function WorkoutTracker() {
           const workStart = activeSet.startWorkTime || workEnd; 
           targetSet.workDurationSec = Math.floor((workEnd - workStart) / 1000);
           setActiveSet(null);
-        } else {
-          targetSet.workDurationSec = targetSet.workDurationSec || null; 
         }
-
-        targetSet.actualRestSec = null;
-        targetSet.wasteDurationSec = null;
 
         const recSec = next[exIndex].recupero_sec;
         setRestTotalTime(recSec);
+        // INIZIALIZZA IL TIMER DI RECUPERO
         setRestEndTime(Date.now() + recSec * 1000);
-        setExtraStartTime(null);
         setRestingSet({ exIndex, setIndex, startTs: Date.now() });
 
-        scheduleNativeRestGong(recSec);
-
-        if (audioRef.current) {
-          audioRef.current.volume = 0;
-          audioRef.current.play().then(() => {
-            audioRef.current!.pause(); audioRef.current!.currentTime = 0; audioRef.current!.volume = 1;
-          }).catch(() => {});
-        }
       } else {
         targetSet.completedAt = undefined;
-        cancelNativeRestGong();
         if (restingSet?.exIndex === exIndex && restingSet?.setIndex === setIndex) {
           setRestingSet(null);
           setRestTotalTime(null); 
-          setRestEndTime(null); 
-          setExtraStartTime(null);
+          setRestEndTime(null);
+          setRestTimeDisplay(null);
         }
       }
 
@@ -402,7 +362,6 @@ export default function WorkoutTracker() {
 
   return (
     <div className="flex flex-col min-h-screen bg-base relative overflow-x-hidden pb-32">
-      <audio ref={audioRef} src={"/" + soundSrc} preload="auto" />
       <div className="sticky top-0 z-40 bg-surface border-b-4 border-line p-4 flex justify-between items-center shadow-[0px_4px_0px_rgba(0,0,0,1)]">
         <div className="flex items-center gap-2">
           <button onClick={() => confirm("Annullare?") && clearAndRedirect()} className="p-1"><ChevronLeft size={32} strokeWidth={3}/></button>
@@ -520,6 +479,7 @@ export default function WorkoutTracker() {
         </div>
       )}
 
+      {/* MODALI RIMANENTI INVARIATE */}
       {previewExercise && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-center justify-center p-6" onClick={() => setPreviewExercise(null)}>
           <div className="relative w-full max-w-sm bg-base border-4 border-line shadow-[12px_12px_0px_#000000] p-6 flex flex-col gap-4" onClick={e => e.stopPropagation()}>
