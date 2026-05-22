@@ -7,19 +7,17 @@ import { ChevronLeft, Plus, Search, X, Trash2, Edit3, ChevronRight, ChevronDown,
 import { supabase } from "../../../lib/supabase";
 import Fuse from "fuse.js";
 
-// === SPINNER ===
+// === SPINNER REATTIVO PURO TAILWIND (PUNTO F) ===
 const CleanSpinner = ({ size = 24 }: { size?: number }) => {
-  const color = "currentColor";
+  const strokeWidth = Math.max(2, Math.round(size * 0.1));
   return (
-    <div style={{ width: size, height: size, position: 'relative', color: color }}>
-      <style>{`@keyframes cleanSpinnerRotate { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } } .spinner-ring { box-sizing: border-box; display: block; position: absolute; width: 100%; height: 100%; border: ${size * 0.15}px solid currentColor; border-radius: 50%; animation: cleanSpinnerRotate 1s cubic-bezier(0.5, 0, 0.5, 1) infinite; border-color: currentColor transparent transparent transparent; } .spinner-ring-track { box-sizing: border-box; display: block; position: absolute; width: 100%; height: 100%; border: ${size * 0.15}px solid currentColor; border-radius: 50%; opacity: 0.15; }`}</style>
-      <div className="spinner-ring-track"></div>
-      <div className="spinner-ring"></div>
+    <div className="relative flex items-center justify-center animate-spin" style={{ width: size, height: size }}>
+      <div className="absolute inset-0 rounded-full border-main opacity-10" style={{ borderWidth: strokeWidth }} />
+      <div className="absolute inset-0 rounded-full border-transparent border-t-brand" style={{ borderWidth: strokeWidth }} />
     </div>
   );
 };
 
-// === TIPI ===
 type Giorno = { id_giorno: number; id_template: string; nome_giorno: string; };
 type Muscolo = { id_gruppo?: number; id?: number; nome: string; };
 type Attrezzo = { id_attrezzo?: number; id?: number; nome: string; };
@@ -38,7 +36,6 @@ type SchedaEsercizio = {
   Esercizi: { nome: string; gif_url?: string }; 
 };
 
-// === FUNZIONI HELPER PER ICONA TIPOGRAFICA ===
 const getInitials = (name: string) => {
   const words = name.trim().split(' ').filter(w => w.length > 0);
   if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
@@ -48,18 +45,15 @@ const getInitials = (name: string) => {
 const getMuscleColor = (muscles: Muscolo[]) => {
   if (!muscles || muscles.length === 0) return 'bg-main text-base'; 
   const primary = muscles[0].nome.toLowerCase();
-  
   if (primary.includes('pett')) return 'bg-[#ff331f] text-white'; 
   if (primary.includes('dorsal') || primary.includes('schiena')) return 'bg-[#3366ff] text-white'; 
   if (primary.includes('gamb') || primary.includes('quadricipit') || primary.includes('femorali')) return 'bg-[#ffde59] text-black'; 
   if (primary.includes('spall') || primary.includes('deltoid')) return 'bg-[#804CD9] text-white'; 
   if (primary.includes('bicipit') || primary.includes('tricipit') || primary.includes('braccia')) return 'bg-[#ff914d] text-black'; 
   if (primary.includes('addom') || primary.includes('core')) return 'bg-[#98f5e1] text-black'; 
-  
   return 'bg-main text-base'; 
 };
 
-// === COMPONENTE ICONA ESERCIZIO ===
 const ExerciseIcon = ({ nome, gif_url, muscles, onImageClick }: { nome: string, gif_url?: string, muscles: Muscolo[], onImageClick: (url: string) => void }) => {
   const [imgError, setImgError] = useState(false);
   const initials = getInitials(nome);
@@ -91,7 +85,6 @@ const ExerciseIcon = ({ nome, gif_url, muscles, onImageClick }: { nome: string, 
     </div>
   );
 };
-
 
 export default function DayEditorPage() {
   const params = useParams();
@@ -162,7 +155,6 @@ export default function DayEditorPage() {
 
       const { data: relAData } = await supabase.from('Esercizio_Attrezzo').select('*');
       if (relAData) setRelAttrezzi(relAData as RelazioneAttrezzo[]);
-
     } catch (error) {
       console.error(error);
     } finally {
@@ -231,13 +223,11 @@ export default function DayEditorPage() {
       setSelectedExercise(null); 
       setEditingId(null); 
       setUnitaMisura("KG");
-      
       setSearchText("");
       setSelectedMuscles([]);
       setSelectedEquipment(null);
       setIsMuscoliOpen(false);
       setIsAttrezziOpen(false);
-
       await fetchData();
     } catch (error) { console.error(error); } finally { setIsSaving(false); }
   };
@@ -295,7 +285,6 @@ export default function DayEditorPage() {
         ordine: es.ordine,
         unita_misura: es.unita_misura 
       }));
-
       await supabase.from('Scheda_Esercizi').upsert(updates);
     }
     dragItem.current = null;
@@ -307,7 +296,6 @@ export default function DayEditorPage() {
   return (
     <main className="flex min-h-screen flex-col items-center pt-12 px-4 pb-20 relative overflow-x-hidden bg-base transition-colors duration-300">
       
-      {/* HEADER */}
       <div className="w-full max-w-2xl flex justify-between items-center mb-8">
         <Link href={giorno ? `/template/${giorno.id_template}` : "/create-template"}>
           <div className="w-12 h-12 bg-surface flex items-center justify-center border-2 border-line shadow-[4px_4px_0px_#000000] dark:shadow-[4px_4px_0px_#804CD9] transition-all active:translate-x-[4px] active:translate-y-[4px] active:shadow-none">
@@ -321,7 +309,6 @@ export default function DayEditorPage() {
 
       <h1 className="font-heading text-4xl font-black text-main text-center uppercase tracking-tighter mb-10">{giorno?.nome_giorno}</h1>
 
-      {/* LISTA ESERCIZI DEL GIORNO */}
       <div className="w-full max-w-2xl flex flex-col gap-5">
         {eserciziGiorno.map((es, index) => {
           const esId = String(es.id_esercizio);
@@ -332,8 +319,7 @@ export default function DayEditorPage() {
           return (
             <div 
               key={es.id_scheda_esercizio} 
-              onDragEnter={() => handleDragEnter(index)} // Rimosso draggable da qui
-              onDragEnd={handleDragEnd}
+              onDragEnter={() => handleDragEnter(index)} 
               onDragOver={(e) => e.preventDefault()}
               className="relative w-full border-2 border-line shadow-[6px_6px_0px_#000000] dark:shadow-[6px_6px_0px_#804CD9] bg-brand overflow-hidden"
             >
@@ -354,16 +340,15 @@ export default function DayEditorPage() {
                 className={`relative z-10 w-full bg-surface p-4 border-r-2 border-line flex items-center justify-between transition-transform duration-300 ${swipedExerciseId === es.id_scheda_esercizio ? '-translate-x-24' : ''}`}
               >
                 <div className="flex items-center gap-3">
-                  {/* MANIGLIA DRAG & DROP */}
                   <div 
                     draggable 
                     onDragStart={() => handleDragStart(index)}
+                    onDragEnd={handleDragEnd}
                     className="shrink-0 text-main/30 hover:text-main transition-colors mr-1 cursor-grab active:cursor-grabbing"
                   >
                     <GripVertical size={24} strokeWidth={2.5} />
                   </div>
 
-                  {/* ICONA ESERCIZIO */}
                   <ExerciseIcon 
                     nome={es.Esercizi?.nome} 
                     gif_url={es.Esercizi?.gif_url} 
@@ -402,7 +387,7 @@ export default function DayEditorPage() {
 
         {eserciziGiorno.length === 0 && (
           <div className="text-center mt-10">
-             <p className="text-muted font-black uppercase tracking-widest text-sm">Nessun esercizio inserito.</p>
+             <p className="text-muted font-black uppercase tracking-widest text-sm">Nessun Core o esercizio inserito.</p>
              <p className="text-main font-bold mt-2">Usa il tasto + in alto per iniziare.</p>
           </div>
         )}
@@ -421,7 +406,6 @@ export default function DayEditorPage() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
-              
               <div className="relative shrink-0">
                 <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-muted" size={20} strokeWidth={3} />
                 <input 
@@ -487,18 +471,14 @@ export default function DayEditorPage() {
                   return (
                     <button key={esId} onClick={() => handleExerciseSelect(es)} className="group w-full text-left p-4 bg-surface border-2 border-line hover:shadow-[4px_4px_0px_#000000] dark:hover:shadow-[4px_4px_0px_#804CD9] hover:-translate-y-1 flex justify-between items-center transition-all">
                       <div className="flex items-center gap-4">
-                        
-                        {/* ICONA ESERCIZIO NEL CATALOGO */}
                         <ExerciseIcon 
                           nome={es.nome} 
                           gif_url={es.gif_url} 
                           muscles={relatedMuscles} 
                           onImageClick={setPreviewGif} 
                         />
-
                         <div className="flex flex-col gap-2">
                           <span className="font-heading text-lg font-black uppercase text-main tracking-tight leading-tight">{es.nome}</span>
-                          
                           {relatedMuscles.length > 0 && (
                             <div className="flex flex-wrap gap-1">
                               {relatedMuscles.map(m => (
@@ -514,7 +494,6 @@ export default function DayEditorPage() {
                     </button>
                   );
                 })}
-                
                 {risultatiFinali.length === 0 && (searchText || selectedMuscles.length > 0 || selectedEquipment) && (
                   <p className="text-muted text-center mt-10 text-sm font-bold uppercase tracking-widest">Nessun esercizio corrisponde.</p>
                 )}
@@ -524,7 +503,7 @@ export default function DayEditorPage() {
         </div>
       )}
 
-      {/* MODALE DETTAGLIO ESERCIZIO CON SCELTA KG/LBS */}
+      {/* MODALE DETTAGLIO ESERCIZIO */}
       {isDetailSheetOpen && selectedExercise && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex flex-col justify-end">
           <div className="bg-base w-full border-t-4 border-line p-8 flex flex-col gap-8 pb-12 shadow-[0px_-12px_0px_rgba(0,0,0,1)] dark:shadow-[0px_-12px_0px_rgba(128,76,217,1)] animate-in slide-in-from-bottom-full duration-200">
@@ -535,8 +514,6 @@ export default function DayEditorPage() {
             </div>
 
             <div className="grid grid-cols-1 gap-6">
-              
-              {/* TOGGLE BRUTALISTA PER UNITA' DI MISURA */}
               <div className="flex flex-col gap-2">
                  <label className="text-xs text-muted uppercase font-black tracking-widest">Unità di Misura</label>
                  <div className="flex gap-2">
@@ -582,7 +559,7 @@ export default function DayEditorPage() {
         </div>
       )}
 
-      {/* === MODALE ANTEPRIMA GIF A TUTTO SCHERMO === */}
+      {/* MODALE ANTEPRIMA GIF */}
       {previewGif && (
         <div 
           className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-center justify-center p-6 animate-in fade-in duration-200"
@@ -598,12 +575,7 @@ export default function DayEditorPage() {
             >
               <X size={28} strokeWidth={4} className="text-white" />
             </button>
-            
-            <img 
-              src={previewGif} 
-              alt="Esercizio Ingrandito" 
-              className="w-full h-auto object-contain bg-white" 
-            />
+            <img src={previewGif} alt="Esercizio Ingrandito" className="w-full h-auto object-contain bg-white" />
           </div>
         </div>
       )}

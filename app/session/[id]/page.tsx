@@ -5,7 +5,6 @@ import { useRouter, useParams } from "next/navigation";
 import { ChevronLeft, Trophy, BarChart3, ListOrdered, Zap, Coffee, Trash2, Clock } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
-// === SPINNER MINIMALISTA RIPRISTINATO ===
 const CleanSpinner = ({ size = 24 }: { size?: number }) => {
   return (
     <div style={{ width: size, height: size, position: 'relative', color: "currentColor" }}>
@@ -16,22 +15,10 @@ const CleanSpinner = ({ size = 24 }: { size?: number }) => {
   );
 };
 
-type SetData = { 
-  reps: string; 
-  weight: string; 
-  completed: boolean; 
-  workDurationSec: number; 
-  actualRestSec: number; 
-  wasteDurationSec: number; 
-  completedAt: number;
-};
+type SetData = { reps: string; weight: string; completed: boolean; workDurationSec: number; actualRestSec: number; wasteDurationSec: number; completedAt: number; };
+type ExerciseLog = { id_esercizio: number; nome: string; expectedSets: number; sets: SetData[]; };
 
-type ExerciseLog = { 
-  id_esercizio: number; 
-  nome: string; 
-  sets: SetData[]; 
-};
-
+// === COMPONENTE GRAFICO ALLINEATO AI COLORI DEL SUMMARY ===
 const NightingaleRoseChart = ({ exercises }: { exercises: ExerciseLog[] }) => {
   const size = 600; 
   const center = size / 2; 
@@ -43,13 +30,25 @@ const NightingaleRoseChart = ({ exercises }: { exercises: ExerciseLog[] }) => {
       const work = ex.sets.reduce((acc, s) => acc + (s.workDurationSec || 0), 0);
       const rest = ex.sets.reduce((acc, s) => acc + (s.actualRestSec || 0), 0);
       const waste = ex.sets.reduce((acc, s) => acc + (s.wasteDurationSec || 0), 0);
-      const isDone = ex.sets.some(s => s.completed);
-      const total = work + rest + waste;
-      totalWorkoutSec += total;
+      
+      const totalSets = ex.expectedSets; 
+      const completedSets = ex.sets.length; 
+      
+      let realTotal = work + rest + waste;
+      let missingTime = 0;
+
+      if (completedSets > 0 && completedSets < totalSets) {
+        missingTime = realTotal * ((totalSets - completedSets) / completedSets);
+      }
+
+      const total = realTotal + missingTime;
+      totalWorkoutSec += realTotal;
+      
       return { 
         id: ex.id_esercizio + Math.random().toString(),
         nome: ex.nome, 
-        work, rest, waste, total, isDone 
+        work, rest, waste, missingTime, total, 
+        isSkipped: completedSets === 0 
       };
     });
 
@@ -72,7 +71,7 @@ const NightingaleRoseChart = ({ exercises }: { exercises: ExerciseLog[] }) => {
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
+    const s = Math.round(seconds % 60);
     return `${m}m ${s}s`;
   };
 
@@ -107,13 +106,12 @@ const NightingaleRoseChart = ({ exercises }: { exercises: ExerciseLog[] }) => {
           }
           const tx = center + textRadius * Math.cos(midAngle);
           const ty = center + textRadius * Math.sin(midAngle);
-
           const shortName = d.nome.length > 14 ? d.nome.substring(0, 13) + '.' : d.nome;
 
-          if (!d.isDone) {
+          if (d.isSkipped) {
             return (
               <g key={d.id}>
-                <path d={generateArcPath(startAngle, endAngle, chartRadius * 0.15)} fill="#000000" stroke="#fff" strokeWidth="1" />
+                <path d={generateArcPath(startAngle, endAngle, chartRadius * 0.15)} fill="#94a3b8" stroke="#1a1a1a" strokeWidth="1.5" />
                 <text x={tx} y={ty} transform={`rotate(${rotation}, ${tx}, ${ty})`} textAnchor={anchor} alignmentBaseline="middle" fontSize="14" fontWeight="900" fontFamily="sans-serif" className="uppercase tracking-tighter fill-muted/50">
                   {shortName}
                 </text>
@@ -121,15 +119,17 @@ const NightingaleRoseChart = ({ exercises }: { exercises: ExerciseLog[] }) => {
             );
           }
           
-          const rTotal = (d.total / maxTotalTime) * chartRadius;
+          const rTotal = (d.total / maxTotalTime) * chartRadius; 
+          const rRealTotal = ((d.work + d.rest + d.waste) / maxTotalTime) * chartRadius; 
           const rRestWork = ((d.work + d.rest) / maxTotalTime) * chartRadius;
           const rWork = (d.work / maxTotalTime) * chartRadius;
 
           return (
             <g key={d.id}>
-              <path d={generateArcPath(startAngle, endAngle, rTotal)} fill="#ff331f" stroke="#fff" strokeWidth="1" /> 
-              <path d={generateArcPath(startAngle, endAngle, rRestWork)} fill="#94a3b8" stroke="#fff" strokeWidth="1" /> 
-              <path d={generateArcPath(startAngle, endAngle, rWork)} fill="#804CD9" stroke="#fff" strokeWidth="1" /> 
+              {d.missingTime > 0 && <path d={generateArcPath(startAngle, endAngle, rTotal)} fill="#94a3b8" stroke="#1a1a1a" strokeWidth="1.5" />}
+              <path d={generateArcPath(startAngle, endAngle, rRealTotal)} fill="#ff331f" stroke="#1a1a1a" strokeWidth="1.5" /> 
+              <path d={generateArcPath(startAngle, endAngle, rRestWork)} fill="#ffde59" stroke="#1a1a1a" strokeWidth="1.5" /> 
+              <path d={generateArcPath(startAngle, endAngle, rWork)} fill="#ccff00" stroke="#1a1a1a" strokeWidth="1.5" /> 
 
               <text x={tx} y={ty} transform={`rotate(${rotation}, ${tx}, ${ty})`} textAnchor={anchor} alignmentBaseline="middle" fontSize="14" fontWeight="900" fontFamily="sans-serif" className="uppercase tracking-tighter fill-main">
                 {shortName}
@@ -140,10 +140,10 @@ const NightingaleRoseChart = ({ exercises }: { exercises: ExerciseLog[] }) => {
       </svg>
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-2 mt-8 w-full text-[10px] font-black uppercase tracking-tighter border-t-2 border-line pt-4 bg-surface">
-        <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#804CD9] border border-black shrink-0"></div><Zap size={10} className="text-muted"/> TUT (Sforzo)</div>
-        <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#94a3b8] border border-black shrink-0"></div><Coffee size={10} className="text-muted"/> Recupero</div>
-        <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#ff331f] border border-black shrink-0"></div><Trash2 size={10} className="text-muted"/> Tempo Perso</div>
-        <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#000000] border border-black shrink-0"></div> Saltato</div>
+        <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#ccff00] border-2 border-line shrink-0"></div><Zap size={10} className="text-muted"/> TUT (Sforzo)</div>
+        <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#ffde59] border-2 border-line shrink-0"></div><Coffee size={10} className="text-muted"/> Recupero</div>
+        <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#ff331f] border-2 border-line shrink-0"></div><Trash2 size={10} className="text-muted"/> Tempo Perso</div>
+        <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#94a3b8] border-2 border-line shrink-0"></div> Serie Mancanti</div>
       </div>
     </div>
   );
@@ -168,7 +168,7 @@ export default function SessionDetailPage() {
       try {
         const { data: sessionData, error: sessionError } = await supabase
           .from('Storico_Allenamenti')
-          .select('nome_allenamento, inizio_ts, durata_totale_sec')
+          .select('nome_allenamento, inizio_ts, durata_totale_sec, id_giorno')
           .eq('id_sessione', sessionId)
           .single();
 
@@ -181,6 +181,21 @@ export default function SessionDetailPage() {
         const dateStr = new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'long', year: 'numeric' }).format(d);
         const timeStr = new Intl.DateTimeFormat('it-IT', { hour: '2-digit', minute: '2-digit' }).format(d);
         setStartDateTime(`${dateStr} - ${timeStr}`);
+
+        // Estrazione Expected Sets dalla Scheda Originale (se id_giorno è presente)
+        let expectedSetsMap = new Map<number, number>();
+        if (sessionData.id_giorno) {
+           const { data: schedaEsercizi } = await supabase
+             .from('Scheda_Esercizi')
+             .select('id_esercizio, serie')
+             .eq('id_giorno', sessionData.id_giorno);
+           
+           if (schedaEsercizi) {
+             schedaEsercizi.forEach((ex: any) => {
+               expectedSetsMap.set(ex.id_esercizio, parseInt(ex.serie) || 1);
+             });
+           }
+        }
 
         const { data: seriesData, error: seriesError } = await supabase
           .from('Storico_Serie')
@@ -198,6 +213,7 @@ export default function SessionDetailPage() {
             exerciseMap.set(row.ordine_esercizio, {
               id_esercizio: row.id_esercizio,
               nome: row.Esercizi?.nome || 'Esercizio Sconosciuto',
+              expectedSets: expectedSetsMap.get(row.id_esercizio) || 4, // Fallback a 4
               sets: []
             });
           }
@@ -229,7 +245,7 @@ export default function SessionDetailPage() {
   const formatTime = (seconds: number) => {
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
-    const s = seconds % 60;
+    const s = Math.round(seconds % 60);
     if (h > 0) return `${h}h ${m}m ${s}s`;
     return `${m}m ${s}s`;
   };

@@ -7,7 +7,6 @@ import { supabase } from "../../lib/supabase";
 
 const LOCAL_STORAGE_KEY = "gymking_active_workout";
 
-// === SPINNER ===
 const CleanSpinner = ({ size = 24 }: { size?: number }) => {
   return (
     <div style={{ width: size, height: size, position: 'relative', color: "currentColor" }}>
@@ -18,26 +17,10 @@ const CleanSpinner = ({ size = 24 }: { size?: number }) => {
   );
 };
 
-// === TIPI DATI ===
-type SetData = { 
-  reps: string; 
-  weight: string; 
-  completed: boolean; 
-  workDurationSec?: number | null; 
-  actualRestSec?: number | null; 
-  wasteDurationSec?: number | null; 
-  completedAt?: number;
-};
+type SetData = { reps: string; weight: string; completed: boolean; workDurationSec?: number | null; actualRestSec?: number | null; wasteDurationSec?: number | null; completedAt?: number; };
+type ExerciseLog = { id_scheda_esercizio?: number; id_esercizio: number; nome: string; recupero_sec: number; sets: SetData[]; };
 
-type ExerciseLog = { 
-  id_scheda_esercizio?: number; 
-  id_esercizio: number; 
-  nome: string; 
-  recupero_sec: number; 
-  sets: SetData[]; 
-};
-
-// === COMPONENTE GRAFICO NIGHTINGALE ROSE ===
+// === COMPONENTE GRAFICO NIGHTINGALE ROSE (RISCRITTO CON FETTE MANCANTI) ===
 const NightingaleRoseChart = ({ exercises }: { exercises: ExerciseLog[] }) => {
   const size = 600; 
   const center = size / 2; 
@@ -49,17 +32,26 @@ const NightingaleRoseChart = ({ exercises }: { exercises: ExerciseLog[] }) => {
       const work = ex.sets.reduce((acc, s) => acc + (s.workDurationSec || 0), 0);
       const rest = ex.sets.reduce((acc, s) => acc + (s.actualRestSec || 0), 0);
       const waste = ex.sets.reduce((acc, s) => acc + (s.wasteDurationSec || 0), 0);
-      const isDone = ex.sets.some(s => s.completed);
-      const total = work + rest + waste;
-      totalWorkoutSec += total;
       
-      // Usa id_scheda_esercizio o fallback casuale per compatibilità tra le due view
-      const uniqueId = 'id_scheda_esercizio' in ex ? ex.id_scheda_esercizio : ex.id_esercizio + Math.random().toString();
+      const totalSets = ex.sets.length;
+      const completedSets = ex.sets.filter(s => s.completed).length;
+      
+      let realTotal = work + rest + waste;
+      let missingTime = 0;
+
+      // Se l'esercizio è parziale, stimiamo il tempo "perso" delle serie non fatte proporzionalmente
+      if (completedSets > 0 && completedSets < totalSets) {
+        missingTime = realTotal * ((totalSets - completedSets) / completedSets);
+      }
+
+      const total = realTotal + missingTime;
+      totalWorkoutSec += realTotal;
       
       return { 
-        id: uniqueId,
+        id: ('id_scheda_esercizio' in ex ? ex.id_scheda_esercizio : ex.id_esercizio) + Math.random().toString(),
         nome: ex.nome, 
-        work, rest, waste, total, isDone 
+        work, rest, waste, missingTime, total, 
+        isSkipped: completedSets === 0 
       };
     });
 
@@ -82,7 +74,7 @@ const NightingaleRoseChart = ({ exercises }: { exercises: ExerciseLog[] }) => {
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
+    const s = Math.round(seconds % 60);
     return `${m}m ${s}s`;
   };
 
@@ -117,13 +109,11 @@ const NightingaleRoseChart = ({ exercises }: { exercises: ExerciseLog[] }) => {
           }
           const tx = center + textRadius * Math.cos(midAngle);
           const ty = center + textRadius * Math.sin(midAngle);
-
           const shortName = d.nome.length > 14 ? d.nome.substring(0, 13) + '.' : d.nome;
 
-          if (!d.isDone) {
+          if (d.isSkipped) {
             return (
               <g key={d.id}>
-                {/* Esercizio saltato: grigio ardesia */}
                 <path d={generateArcPath(startAngle, endAngle, chartRadius * 0.15)} fill="#94a3b8" stroke="#1a1a1a" strokeWidth="1.5" />
                 <text x={tx} y={ty} transform={`rotate(${rotation}, ${tx}, ${ty})`} textAnchor={anchor} alignmentBaseline="middle" fontSize="14" fontWeight="900" fontFamily="sans-serif" className="uppercase tracking-tighter fill-muted/50">
                   {shortName}
@@ -132,17 +122,20 @@ const NightingaleRoseChart = ({ exercises }: { exercises: ExerciseLog[] }) => {
             );
           }
           
-          const rTotal = (d.total / maxTotalTime) * chartRadius;
+          const rTotal = (d.total / maxTotalTime) * chartRadius; // Somma di lavoro+recupero+spreco+mancante
+          const rRealTotal = ((d.work + d.rest + d.waste) / maxTotalTime) * chartRadius; // Somma dati reali
           const rRestWork = ((d.work + d.rest) / maxTotalTime) * chartRadius;
           const rWork = (d.work / maxTotalTime) * chartRadius;
 
           return (
             <g key={d.id}>
-              {/* Tempo Perso: Rosso */}
-              <path d={generateArcPath(startAngle, endAngle, rTotal)} fill="#ff331f" stroke="#1a1a1a" strokeWidth="1.5" /> 
-              {/* Recupero: Giallo */}
+              {/* Fettona esterna (Serie Mancanti/Non fatte) */}
+              {d.missingTime > 0 && <path d={generateArcPath(startAngle, endAngle, rTotal)} fill="#94a3b8" stroke="#1a1a1a" strokeWidth="1.5" />}
+              {/* Tempo Perso (Rosso) */}
+              <path d={generateArcPath(startAngle, endAngle, rRealTotal)} fill="#ff331f" stroke="#1a1a1a" strokeWidth="1.5" /> 
+              {/* Recupero (Giallo) */}
               <path d={generateArcPath(startAngle, endAngle, rRestWork)} fill="#ffde59" stroke="#1a1a1a" strokeWidth="1.5" /> 
-              {/* Sforzo (TUT): Verde Acido */}
+              {/* Sforzo TUT (Verde Acido) */}
               <path d={generateArcPath(startAngle, endAngle, rWork)} fill="#ccff00" stroke="#1a1a1a" strokeWidth="1.5" /> 
 
               <text x={tx} y={ty} transform={`rotate(${rotation}, ${tx}, ${ty})`} textAnchor={anchor} alignmentBaseline="middle" fontSize="14" fontWeight="900" fontFamily="sans-serif" className="uppercase tracking-tighter fill-main">
@@ -157,7 +150,7 @@ const NightingaleRoseChart = ({ exercises }: { exercises: ExerciseLog[] }) => {
         <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#ccff00] border-2 border-line shrink-0"></div><Zap size={10} className="text-muted"/> TUT (Sforzo)</div>
         <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#ffde59] border-2 border-line shrink-0"></div><Coffee size={10} className="text-muted"/> Recupero</div>
         <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#ff331f] border-2 border-line shrink-0"></div><Trash2 size={10} className="text-muted"/> Tempo Perso</div>
-        <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#94a3b8] border-2 border-line shrink-0"></div> Saltato</div>
+        <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#94a3b8] border-2 border-line shrink-0"></div> Serie Mancanti</div>
       </div>
     </div>
   );
@@ -206,7 +199,7 @@ export default function WorkoutSummaryPage() {
   const formatTime = (seconds: number) => {
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
-    const s = seconds % 60;
+    const s = Math.round(seconds % 60);
     if (h > 0) return `${h}h ${m}m ${s}s`;
     return `${m}m ${s}s`;
   };
@@ -221,7 +214,6 @@ export default function WorkoutSummaryPage() {
     router.back();
   };
 
-  // === LOGICA INSERIMENTO DB RIVISITATA ===
   const handleFinalSave = async () => {
     if (!startTime || !totalTime) return;
     setIsSaving(true);
@@ -234,7 +226,6 @@ export default function WorkoutSummaryPage() {
       if (!savedData) throw new Error("Dati in locale non trovati.");
       const parsed = JSON.parse(savedData);
 
-      // 1. INSERIMENTO MASTER
       const { data: sessionData, error: sessionError } = await supabase
         .from('Storico_Allenamenti')
         .insert([{
@@ -252,7 +243,6 @@ export default function WorkoutSummaryPage() {
       if (sessionError) throw sessionError;
       const idSessione = sessionData.id_sessione;
 
-      // 2. PARSING E MAP DELLE SERIE TRANSAZIONALI
       const payloadSerie: any[] = [];
       let ord_es = 1;
 
@@ -280,13 +270,11 @@ export default function WorkoutSummaryPage() {
         if (hasValidSets) ord_es++;
       });
 
-      // 3. BULK INSERT SERIE
       if (payloadSerie.length > 0) {
         const { error: batchError } = await supabase.from('Storico_Serie').insert(payloadSerie);
         if (batchError) throw batchError;
       }
 
-      // 4. CLEANUP E REDIRECT
       localStorage.removeItem(LOCAL_STORAGE_KEY);
       router.push("/");
 

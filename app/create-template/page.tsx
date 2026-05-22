@@ -5,59 +5,21 @@ import Link from "next/link";
 import { ChevronLeft, SlidersHorizontal, Plus, Star, Check } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 
-// === SPINNER A CERCHIO CONTINUO ROSA PASTEL ===
+// === SPINNER REATTIVO PURO TAILWIND (PUNTO F) ===
 const CleanSpinner = ({ size = 24 }: { size?: number }) => {
-  const color = "#EFA0A0";
-
+  const strokeWidth = Math.max(2, Math.round(size * 0.1));
   return (
-    <div style={{ width: size, height: size, position: 'relative', color: color }}>
-      <style>
-        {`
-          @keyframes cleanSpinnerRotate {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-          }
-          .spinner-ring {
-            box-sizing: border-box;
-            display: block;
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            border: ${size * 0.1}px solid currentColor;
-            border-radius: 50%;
-            animation: cleanSpinnerRotate 1s cubic-bezier(0.5, 0, 0.5, 1) infinite;
-            border-color: currentColor transparent transparent transparent;
-          }
-          .spinner-ring-track {
-            box-sizing: border-box;
-            display: block;
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            border: ${size * 0.1}px solid currentColor;
-            border-radius: 50%;
-            opacity: 0.15;
-          }
-        `}
-      </style>
-      <div className="spinner-ring-track"></div>
-      <div className="spinner-ring"></div>
+    <div className="relative flex items-center justify-center animate-spin" style={{ width: size, height: size }}>
+      {/* Traccia di fondo */}
+      <div className="absolute inset-0 rounded-full border-main opacity-10" style={{ borderWidth: strokeWidth }} />
+      {/* Arco di caricamento agganciato al colore del brand */}
+      <div className="absolute inset-0 rounded-full border-transparent border-t-brand" style={{ borderWidth: strokeWidth }} />
     </div>
   );
 };
 
-type Template = {
-  id_template: string;
-  nome_template: string;
-  is_favorite: boolean;
-  id_categoria: string | null;
-};
-
-type Categoria = {
-  id_categoria: string;
-  nome_categoria: string;
-  num_giorni: number; 
-};
+type Template = { id_template: string; nome_template: string; is_favorite: boolean; id_categoria: string | null; };
+type Categoria = { id_categoria: string; nome_categoria: string; num_giorni: number; };
 
 export default function CreateTemplatePage() {
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -115,7 +77,6 @@ export default function CreateTemplatePage() {
 
   const handleCategoryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedCatId = e.target.value;
-    
     if (selectedCatId === "NEW") {
       setIsCreatingNewCategory(true);
       setNewTemplateCategoryId("");
@@ -123,12 +84,9 @@ export default function CreateTemplatePage() {
     } else {
       setIsCreatingNewCategory(false);
       setNewTemplateCategoryId(selectedCatId);
-      
       if (selectedCatId) {
         const cat = categorie.find(c => c.id_categoria === selectedCatId);
-        if (cat) {
-          setNewTemplateDays(cat.num_giorni);
-        }
+        if (cat) setNewTemplateDays(cat.num_giorni);
       } else {
         setNewTemplateDays(1);
       }
@@ -197,7 +155,6 @@ export default function CreateTemplatePage() {
   return (
     <main className="flex min-h-screen flex-col items-center pt-12 px-4 pb-20 relative overflow-x-hidden bg-base transition-colors duration-300">
       
-      {/* HEADER / TOP BAR - Z-INDEX ALZATO A 40 */}
       <div className="w-full max-w-2xl flex justify-between items-center mb-8 relative z-40">
         <Link href="/">
           <div className="w-12 h-12 bg-surface flex items-center justify-center border-2 border-line shadow-[4px_4px_0px_#000000] dark:shadow-[4px_4px_0px_#804CD9] transition-all active:translate-x-[4px] active:translate-y-[4px] active:shadow-none">
@@ -256,7 +213,6 @@ export default function CreateTemplatePage() {
                 <Link key={template.id_template} href={`/template/${template.id_template}`} className="w-full group outline-none">
                   <div className="w-full bg-base border-2 border-line p-4 flex items-center gap-5 transition-all shadow-[6px_6px_0px_#000000] dark:shadow-[6px_6px_0px_#804CD9] group-hover:translate-x-[2px] group-hover:translate-y-[2px] group-hover:shadow-[4px_4px_0px_#000000] dark:group-hover:shadow-[4px_4px_0px_#804CD9] active:translate-x-[6px] active:translate-y-[6px] active:shadow-none">
                     
-                    {/* AVATAR BOX (Sfondo bianco sporco forzato a priori) */}
                     <div className="w-16 h-16 bg-[#f4f4f0] border-2 border-[#1a1a1a] flex items-center justify-center shrink-0 overflow-hidden">
                       <img src="/icona.png" alt="Icon" className="w-14 h-14 object-contain scale-125" />
                     </div>
@@ -281,7 +237,6 @@ export default function CreateTemplatePage() {
         </div>
       )}
 
-      {/* MODALE DI CREAZIONE (Z-index alzato a 100) */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-base w-full max-w-md border-4 border-line p-8 flex flex-col gap-6 shadow-[12px_12px_0px_#000000] dark:shadow-[12px_12px_0px_#804CD9] animate-in zoom-in-95 duration-200">
@@ -292,7 +247,6 @@ export default function CreateTemplatePage() {
               <label className="text-xs text-muted uppercase font-black tracking-widest">Nome Template</label>
               <input 
                 type="text" 
-             
                 value={newTemplateName} 
                 onChange={(e) => setNewTemplateName(e.target.value)} 
                 className="w-full bg-surface border-2 border-line p-4 text-main font-bold outline-none focus:bg-base focus:shadow-[4px_4px_0px_#000000] dark:focus:shadow-[4px_4px_0px_#804CD9] transition-all placeholder:text-muted/50" 

@@ -6,14 +6,13 @@ import { useRouter } from "next/navigation";
 import { ChevronLeft, Play, Dumbbell, CheckCircle2, X, GripVertical, Trophy } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import Spinner from "@/components/Spinner";
-// IMPORTAZIONE DEL MOTORE AUDIO
 import { initAudioContext, loadAudioFile } from "@/utils/audioEngine";
 
 type Giorno = { id_giorno: number; nome_giorno: string; ordine: number; id_template: string; };
 type Template = { id_template: string; nome_template: string; id_categoria: string | null; Giorni_Template: Giorno[]; };
 
 // ==========================================
-// COMPONENTE CARTA TEMPLATE (Con Drag & Drop)
+// COMPONENTE CARTA TEMPLATE (Con Drag & Drop Mouse + Touch)
 // ==========================================
 const TemplateCard = ({ 
   template, 
@@ -39,9 +38,12 @@ const TemplateCard = ({
 
   if (template.Giorni_Template.length === 0) return null;
 
+  // Handler Mouse standard
   const handleDragStart = (index: number) => { dragItem.current = index; };
   const handleDragEnter = (index: number) => { dragOverItem.current = index; };
-  const handleDragEnd = async () => {
+  
+  // Esecuzione del riordino (Condivisa tra Mouse e Touch)
+  const commitReorder = async () => {
     if (dragItem.current !== null && dragOverItem.current !== null && dragItem.current !== dragOverItem.current) {
       const newTodo = [...todoDays];
       const draggedItemContent = newTodo[dragItem.current];
@@ -63,6 +65,31 @@ const TemplateCard = ({
     dragOverItem.current = null;
   };
 
+  const handleDragEnd = () => { commitReorder(); };
+
+  // Handler Touch specifici per iOS / Mobile PWA
+  const handleTouchStart = (index: number) => {
+    dragItem.current = index;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (dragItem.current === null) return;
+    const touch = e.touches[0];
+    // Rileva l'elemento geometrico sotto il punto di contatto
+    const elementTarget = document.elementFromPoint(touch.clientX, touch.clientY);
+    const rowContainer = elementTarget?.closest("[data-index]");
+    if (rowContainer) {
+      const currentIndex = parseInt(rowContainer.getAttribute("data-index") || "");
+      if (!isNaN(currentIndex) && currentIndex !== dragItem.current) {
+        dragOverItem.current = currentIndex;
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    commitReorder();
+  };
+
   return (
     <div className="flex flex-col gap-3">
       <h2 className="font-heading text-5xl md:text-6xl font-black text-main uppercase tracking-tighter leading-none mb-4">
@@ -71,7 +98,7 @@ const TemplateCard = ({
       
       <div className="flex flex-col gap-4">
         
-        {/* === GIORNI COMPLETATI (Ingrigiti) === */}
+        {/* === GIORNI COMPLETATI === */}
         {doneDays.map((giorno) => (
           <div key={giorno.id_giorno} className="w-full border-2 border-line p-5 flex items-center justify-between bg-surface opacity-40 grayscale select-none transition-all">
             <span className="font-heading text-2xl font-black uppercase tracking-tight text-main line-through decoration-brand decoration-4">
@@ -87,11 +114,15 @@ const TemplateCard = ({
           return (
             <div 
               key={giorno.id_giorno}
+              data-index={index} // Fondamentale per il tracciamento geometrico del Touch
               draggable
               onDragStart={() => handleDragStart(index)}
               onDragEnter={() => handleDragEnter(index)}
               onDragEnd={handleDragEnd}
-              onDragOver={(e) => e.preventDefault()} 
+              onDragOver={(e) => e.preventDefault()}
+              onTouchStart={() => handleTouchStart(index)}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
               className={`group w-full border-2 p-6 flex items-center gap-4 transition-all outline-none cursor-grab active:cursor-grabbing
                 ${isNext 
                   ? 'bg-brand border-line shadow-[6px_6px_0px_#000000] dark:shadow-[6px_6px_0px_#804CD9] relative z-10 animate-smooth-scale' 
@@ -147,13 +178,11 @@ export default function StartWorkoutPage() {
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
   
-  // STATO PER IL RECUPERO DELLA SESSIONE INTERROTTA
   const [hasSavedWorkout, setHasSavedWorkout] = useState(false);
 
-  // Calcolo matematico del lunedì corrente alle ore 00:00:00
   const getMostRecentMondayISO = () => {
     const now = new Date();
-    const day = now.getDay(); // 0: Dom, 1: Lun, ..., 6: Sab
+    const day = now.getDay();
     const diff = now.getDate() - (day === 0 ? 6 : day - 1);
     const monday = new Date(now.setDate(diff));
     monday.setHours(0, 0, 0, 0);
@@ -161,7 +190,6 @@ export default function StartWorkoutPage() {
   };
 
   useEffect(() => {
-    // Controllo se iOS ha killato l'app in precedenza
     const savedSession = localStorage.getItem("gymking_active_session");
     if (savedSession) {
       setHasSavedWorkout(true);
@@ -181,10 +209,8 @@ export default function StartWorkoutPage() {
           
         if (tData) {
           setTemplateCorrente(tData as Template);
-
           const lastMondayISO = getMostRecentMondayISO();
 
-          // Query vincolata temporalmente alla settimana corrente
           const { data: storico } = await supabase
             .from('Storico_Allenamenti')
             .select('id_giorno')
@@ -238,25 +264,26 @@ export default function StartWorkoutPage() {
     }
   };
 
-  // === GESTIONE NUOVA/VECCHIA SESSIONE ===
   const startFreeWorkout = () => {
+    const preferredSound = localStorage.getItem('gymking_sound') || 'sounds/gong.mp3';
     initAudioContext();
-    loadAudioFile("/sounds/gong.mp3");
-    localStorage.removeItem("gymking_active_session"); // Pulisce allenamenti morti
+    loadAudioFile(preferredSound.startsWith('/') ? preferredSound : `/${preferredSound}`);
+    localStorage.removeItem("gymking_active_session");
     router.push(`/active-workout`);
   };
 
   const handleStartTemplateWorkout = () => {
+    const preferredSound = localStorage.getItem('gymking_sound') || 'sounds/gong.mp3';
     initAudioContext();
-    loadAudioFile("/sounds/gong.mp3");
-    localStorage.removeItem("gymking_active_session"); // Pulisce allenamenti morti
+    loadAudioFile(preferredSound.startsWith('/') ? preferredSound : `/${preferredSound}`);
+    localStorage.removeItem("gymking_active_session");
     setCountdown(3);
   };
 
   const handleResumeWorkout = () => {
+    const preferredSound = localStorage.getItem('gymking_sound') || 'sounds/gong.mp3';
     initAudioContext();
-    loadAudioFile("/sounds/gong.mp3");
-    // Non azzera il localStorage, naviga direttamente per riprendere lo stato
+    loadAudioFile(preferredSound.startsWith('/') ? preferredSound : `/${preferredSound}`);
     router.push("/active-workout");
   };
 
@@ -283,7 +310,6 @@ export default function StartWorkoutPage() {
 
       <div className="w-full max-w-2xl flex flex-col gap-14 relative z-10">
         
-        {/* === BANNER RIPRISTINO ALLENAMENTO === */}
         {hasSavedWorkout && (
           <div className="border-4 border-brand bg-brand/10 p-5 shadow-[6px_6px_0px_#000000] dark:shadow-[6px_6px_0px_#804CD9] flex flex-col gap-3">
             <div className="flex items-center gap-2">
@@ -325,7 +351,6 @@ export default function StartWorkoutPage() {
           />
         )}
 
-        {/* ALLENAMENTO LIBERO */}
         {!isLoading && (
           <div className="mt-4 border-t-2 border-line pt-8">
             <button 
@@ -403,7 +428,6 @@ export default function StartWorkoutPage() {
           )}
         </div>
       )}
-
     </main>
   );
 }
