@@ -72,7 +72,7 @@ type EsercizioBase = { id_esercizio: number; nome: string; gif_url?: string; };
 type ActiveSet = { exIndex: number; setIndex: number; phase: 'prep' | 'work'; startPrepTime: number; startWorkTime: number | null; };
 type RestingSet = { exIndex: number; setIndex: number; startTs: number; }; 
 
-export default function WorkoutTracker() {
+export function WorkoutTrackerContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const dayId = searchParams.get("day");
@@ -758,5 +758,21 @@ export default function WorkoutTracker() {
         </div>
       )}
     </div>
+  );
+  
+}
+// Aggiungi questo esattamente in fondo al file, dopo la chiusura di WorkoutTrackerContent
+export default function WorkoutTracker() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center bg-base text-main">
+        {/* Usiamo un div semplice o il tuo CleanSpinner per l'attesa */}
+        <span className="font-heading text-2xl font-black uppercase animate-pulse">
+          Caricamento Dati...
+        </span>
+      </div>
+    }>
+      <WorkoutTrackerContent />
+    </Suspense>
   );
 }
