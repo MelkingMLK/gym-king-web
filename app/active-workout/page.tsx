@@ -72,7 +72,7 @@ type EsercizioBase = { id_esercizio: number; nome: string; gif_url?: string; };
 type ActiveSet = { exIndex: number; setIndex: number; phase: 'prep' | 'work'; startPrepTime: number; startWorkTime: number | null; };
 type RestingSet = { exIndex: number; setIndex: number; startTs: number; }; 
 
-export function WorkoutTrackerContent() {
+  function WorkoutTrackerContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const dayId = searchParams.get("day");
