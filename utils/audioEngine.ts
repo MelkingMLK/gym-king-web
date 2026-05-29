@@ -1,53 +1,64 @@
-// Manteniamo le istanze globali per non ricaricare il file a ogni render
+"use client";
+
 let audioCtx: AudioContext | null = null;
 let audioBuffer: AudioBuffer | null = null;
+let isUnlocked = false;
 
-// 1. Inizializza il contesto
 export const initAudioContext = () => {
-  if (typeof window === "undefined") return; // Previene crash nel Server-Side Rendering
-  
+  if (typeof window === "undefined") return;
   if (!audioCtx) {
-    // Gestione compatibilità per Safari (webkit)
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    audioCtx = new AudioContextClass();
-  }
-};
-
-// 2. Pre-carica il suono in memoria (Buffer)
-export const loadAudioFile = async (url: string) => {
-  if (!audioCtx) initAudioContext();
-  if (audioBuffer) return; // Evita di riscaricare il file se già in memoria
-
-  try {
-    const response = await fetch(url);
-    
-    // IL CONTROLLO MANCANTE: Verifichiamo che il server abbia risposto con 200 OK
-    if (!response.ok) {
-      throw new Error(`File audio non trovato o irraggiungibile (HTTP ${response.status})`);
+    if (AudioContextClass) {
+      audioCtx = new AudioContextClass();
     }
-
-    const arrayBuffer = await response.arrayBuffer();
-    audioBuffer = await audioCtx!.decodeAudioData(arrayBuffer);
-  } catch (error) {
-    console.error("Errore irreversibile nel caricamento dell'audio:", error);
   }
 };
-// 3. Riproduce il suono
-export const playSound = () => {
-  if (!audioCtx || !audioBuffer) {
-    console.warn("Motore audio non inizializzato o buffer vuoto.");
-    return;
-  }
 
-  // iOS blocca il contesto audio finché non c'è un'interazione esplicita dell'utente.
-  // Se è sospeso, lo "svegliamo" forzatamente prima di suonare.
-  if (audioCtx.state === "suspended") {
+// === LA FUNZIONE CRITICA PER IL MOBILE ===
+export const unlockAudio = () => {
+  if (typeof window === "undefined") return;
+  initAudioContext();
+  if (!audioCtx || isUnlocked) return;
+
+  // Crea un buffer vuoto e inudibile per "sbloccare" i permessi iOS/Android
+  const buffer = audioCtx.createBuffer(1, 1, 22050);
+  const node = audioCtx.createBufferSource();
+  node.buffer = buffer;
+  node.connect(audioCtx.destination);
+  node.start(0);
+  
+  // Forza il risveglio del thread audio
+  if (audioCtx.state === 'suspended') {
     audioCtx.resume();
   }
+  
+  isUnlocked = true;
+};
 
-  // Creiamo un "nodo" sorgente che leggerà il nostro buffer
+export const loadAudioFile = async (url: string) => {
+  if (typeof window === "undefined") return;
+  initAudioContext();
+  if (!audioCtx) return;
+  
+  try {
+    const response = await fetch(url);
+    const arrayBuffer = await response.arrayBuffer();
+    audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+  } catch (e) {
+    console.error("Errore critico caricamento audio:", e);
+  }
+};
+
+export const playSound = () => {
+  if (!audioCtx || !audioBuffer) return;
+  
+  // Se per qualche motivo il device lo ha sospeso di nuovo, lo forziamo
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+  
   const source = audioCtx.createBufferSource();
   source.buffer = audioBuffer;
-  source.connect(audioCtx.destination); // Collega la sorgente alle casse/cuffie
-  source.start(0); // Suona immediatamente
+  source.connect(audioCtx.destination);
+  source.start(0);
 };

@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Trophy, BarChart3, ListOrdered, Zap, Coffee, Trash2, CheckCircle2, Clock } from "lucide-react";
+import { ChevronLeft, Trophy, BarChart3, ListOrdered, Zap, Coffee, Trash2, CheckCircle2, Clock, Ghost } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 
 const LOCAL_STORAGE_KEY = "gymking_active_workout";
@@ -10,7 +10,7 @@ const LOCAL_STORAGE_KEY = "gymking_active_workout";
 const CleanSpinner = ({ size = 24 }: { size?: number }) => {
   return (
     <div style={{ width: size, height: size, position: 'relative', color: "currentColor" }}>
-      <style>{`@keyframes cleanSpinnerRotate { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } } .spinner-ring { box-sizing: border-box; display: block; position: absolute; width: 100%; height: 100%; border: ${size! * 0.15}px solid currentColor; border-radius: 50%; animation: cleanSpinnerRotate 1s cubic-bezier(0.5, 0, 0.5, 1) infinite; border-color: currentColor transparent transparent transparent; } .spinner-ring-track { box-sizing: border-box; display: block; position: absolute; width: 100%; height: 100%; border: ${size! * 0.15}px solid currentColor; border-radius: 50%; opacity: 0.15; }`}</style>
+      <style>{`@keyframes cleanSpinnerRotate { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } } .spinner-ring { box-sizing: border-box; display: block; position: absolute; width: 100%; height: 100%; border: ${size * 0.15}px solid currentColor; border-radius: 50%; animation: cleanSpinnerRotate 1s cubic-bezier(0.5, 0, 0.5, 1) infinite; border-color: currentColor transparent transparent transparent; } .spinner-ring-track { box-sizing: border-box; display: block; position: absolute; width: 100%; height: 100%; border: ${size * 0.15}px solid currentColor; border-radius: 50%; opacity: 0.15; }`}</style>
       <div className="spinner-ring-track"></div>
       <div className="spinner-ring"></div>
     </div>
@@ -20,14 +20,106 @@ const CleanSpinner = ({ size = 24 }: { size?: number }) => {
 type SetData = { reps: string; weight: string; completed: boolean; workDurationSec?: number | null; actualRestSec?: number | null; wasteDurationSec?: number | null; completedAt?: number; };
 type ExerciseLog = { id_scheda_esercizio?: number; id_esercizio: number; nome: string; recupero_sec: number; sets: SetData[]; };
 
-// === COMPONENTE GRAFICO NIGHTINGALE ROSE (RISCRITTO CON FETTE MANCANTI) ===
+// === GRAFICO MACRO A CIAMBELLA (TOTALI DI SESSIONE) ===
+const MacroDonutChart = ({ exercises, totalSessionTime }: { exercises: ExerciseLog[], totalSessionTime: number }) => {
+  const size = 400;
+  const center = size / 2;
+  const radius = 160;
+  const innerRadius = 90;
+
+  const { tut, rest, waste, unaccounted } = useMemo(() => {
+    let t = 0; let r = 0; let w = 0;
+    exercises.forEach(ex => {
+      ex.sets.forEach(s => {
+        if (s.completed) {
+          t += s.workDurationSec || 0;
+          r += s.actualRestSec || 0;
+          w += s.wasteDurationSec || 0;
+        }
+      });
+    });
+    const tracked = t + r + w;
+    const u = Math.max(0, totalSessionTime - tracked);
+    return { tut: t, rest: r, waste: w, unaccounted: u };
+  }, [exercises, totalSessionTime]);
+
+  const formatTime = (seconds: number) => {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.round(seconds % 60);
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+  };
+
+  const getCoordinatesForAngle = (angle: number, r: number) => ({
+    x: center + r * Math.cos(angle),
+    y: center + r * Math.sin(angle)
+  });
+
+  const generatePieSlice = (startAngle: number, endAngle: number) => {
+    if (endAngle - startAngle >= 2 * Math.PI - 0.01) {
+      return `M ${center + radius} ${center} A ${radius} ${radius} 0 1 1 ${center - radius} ${center} A ${radius} ${radius} 0 1 1 ${center + radius} ${center} Z`;
+    }
+    const p1 = getCoordinatesForAngle(startAngle, radius);
+    const p2 = getCoordinatesForAngle(endAngle, radius);
+    const largeArcFlag = endAngle - startAngle <= Math.PI ? "0" : "1";
+    return `M ${center} ${center} L ${p1.x} ${p1.y} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${p2.x} ${p2.y} Z`;
+  };
+
+  const total = tut + rest + waste + unaccounted;
+  if (total === 0) return null;
+
+  let currentAngle = -Math.PI / 2; 
+  
+  const slices = [
+    { value: tut, color: "#ccff00", label: "TUT" },
+    { value: rest, color: "#ffde59", label: "Recupero" },
+    { value: waste, color: "#ff331f", label: "Tempo Perso" },
+    { value: unaccounted, color: "#1a1a1a", label: "Non Tracciato" } 
+  ].map(slice => {
+    const angle = (slice.value / total) * 2 * Math.PI;
+    const start = currentAngle;
+    const end = currentAngle + angle;
+    currentAngle = end;
+    return { ...slice, start, end };
+  });
+
+  return (
+    <div className="flex flex-col items-center bg-surface border-4 border-line p-6 shadow-[8px_8px_0px_#000000] relative w-full h-full">
+      <h3 className="font-heading text-2xl font-black uppercase text-main tracking-tighter mb-4 border-b-4 border-line pb-2 w-full text-center">Efficienza Macro</h3>
+      
+      <div className="relative w-full max-w-[300px] flex items-center justify-center flex-1">
+        <svg viewBox={`0 0 ${size} ${size}`} className="w-full drop-shadow-md">
+          {slices.map((slice, i) => slice.value > 0 && (
+            <path key={i} d={generatePieSlice(slice.start, slice.end)} fill={slice.color} stroke="var(--color-line)" strokeWidth="3" />
+          ))}
+          <circle cx={center} cy={center} r={innerRadius} fill="var(--color-surface)" stroke="var(--color-line)" strokeWidth="4" />
+        </svg>
+
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none mt-2">
+          <span className="text-[10px] font-black uppercase tracking-widest text-muted">Totale</span>
+          <span className="font-heading text-4xl font-black text-main leading-none tabular-nums mt-1">{formatTime(totalSessionTime)}</span>
+        </div>
+      </div>
+
+      <div className="flex flex-col w-full gap-2 mt-6 text-[10px] font-black uppercase tracking-tighter bg-base p-4 border-2 border-line">
+        <div className="flex items-center justify-between"><div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#ccff00] border-2 border-line shrink-0"></div><Zap size={12} className="text-muted"/> Sforzo</div><span className="text-main tabular-nums">{formatTime(tut)} <span className="text-muted ml-1">({Math.round((tut/total)*100)}%)</span></span></div>
+        <div className="flex items-center justify-between"><div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#ffde59] border-2 border-line shrink-0"></div><Coffee size={12} className="text-muted"/> Pause</div><span className="text-main tabular-nums">{formatTime(rest)} <span className="text-muted ml-1">({Math.round((rest/total)*100)}%)</span></span></div>
+        <div className="flex items-center justify-between"><div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#ff331f] border-2 border-line shrink-0"></div><Trash2 size={12} className="text-muted"/> Perso</div><span className="text-main tabular-nums">{formatTime(waste)} <span className="text-muted ml-1">({Math.round((waste/total)*100)}%)</span></span></div>
+        <div className="flex items-center justify-between"><div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#1a1a1a] border-2 border-line shrink-0"></div><Ghost size={12} className="text-muted"/> Morto</div><span className="text-main tabular-nums">{formatTime(unaccounted)} <span className="text-muted ml-1">({Math.round((unaccounted/total)*100)}%)</span></span></div>
+      </div>
+    </div>
+  );
+};
+
+// === COMPONENTE GRAFICO NIGHTINGALE ROSE (MICRO DISTRIBUZIONE) ===
 const NightingaleRoseChart = ({ exercises }: { exercises: ExerciseLog[] }) => {
   const size = 600; 
   const center = size / 2; 
   const chartRadius = 180; 
 
   const { chartData, maxTotalTime } = useMemo(() => {
-    let totalWorkoutSec = 0;
     const aggregated = exercises.map(ex => {
       const work = ex.sets.reduce((acc, s) => acc + (s.workDurationSec || 0), 0);
       const rest = ex.sets.reduce((acc, s) => acc + (s.actualRestSec || 0), 0);
@@ -39,16 +131,14 @@ const NightingaleRoseChart = ({ exercises }: { exercises: ExerciseLog[] }) => {
       let realTotal = work + rest + waste;
       let missingTime = 0;
 
-      // Se l'esercizio è parziale, stimiamo il tempo "perso" delle serie non fatte proporzionalmente
       if (completedSets > 0 && completedSets < totalSets) {
         missingTime = realTotal * ((totalSets - completedSets) / completedSets);
       }
 
       const total = realTotal + missingTime;
-      totalWorkoutSec += realTotal;
       
       return { 
-        id: ('id_scheda_esercizio' in ex ? ex.id_scheda_esercizio : ex.id_esercizio) + Math.random().toString(),
+        id: (ex.id_scheda_esercizio || ex.id_esercizio) + Math.random().toString(),
         nome: ex.nome, 
         work, rest, waste, missingTime, total, 
         isSkipped: completedSets === 0 
@@ -56,7 +146,7 @@ const NightingaleRoseChart = ({ exercises }: { exercises: ExerciseLog[] }) => {
     });
 
     const maxTotal = Math.max(...aggregated.map(d => d.total), 1); 
-    return { chartData: aggregated, maxTotalTime: maxTotal, totalWorkoutTime: totalWorkoutSec };
+    return { chartData: aggregated, maxTotalTime: maxTotal };
   }, [exercises]);
 
   const numExercises = chartData.length;
@@ -72,85 +162,65 @@ const NightingaleRoseChart = ({ exercises }: { exercises: ExerciseLog[] }) => {
     return `M ${center} ${center} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${x2} ${y2} Z`;
   };
 
-  const formatTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60);
-    const s = Math.round(seconds % 60);
-    return `${m}m ${s}s`;
-  };
-
   if (numExercises === 0) return <div className="text-center font-black uppercase text-muted py-10">Nessun dato grafico.</div>;
 
   return (
-    <div className="flex flex-col items-center bg-surface border-4 border-line p-4 shadow-[8px_8px_0px_#000000] relative w-full">
-      <div className="absolute top-4 right-4 z-20 bg-base border-2 border-line p-2 shadow-[2px_2px_0px_#000000] flex flex-col items-end">
-          <span className="text-[9px] font-black uppercase text-muted tracking-tighter leading-none mb-1">Total TUT</span>
-          <span className="font-heading text-xl font-black text-brand leading-none tabular-nums text-main">
-            {formatTime(chartData.reduce((acc,d)=> acc+d.work, 0))}
-          </span>
-      </div>
+    <div className="flex flex-col items-center bg-surface border-4 border-line p-6 shadow-[8px_8px_0px_#000000] relative w-full h-full">
+      <h3 className="font-heading text-2xl font-black uppercase text-main tracking-tighter mb-4 border-b-4 border-line pb-2 w-full text-center">Micro Distribuzione</h3>
 
-      <svg viewBox={`0 0 ${size} ${size}`} className="w-full max-w-[450px] drop-shadow-md mt-16">
-        <circle cx={center} cy={center} r={chartRadius} fill="none" stroke="#e2e8f0" strokeWidth="1.5" strokeDasharray="5 5" />
-        <circle cx={center} cy={center} r={chartRadius * 0.66} fill="none" stroke="#e2e8f0" strokeWidth="1" strokeDasharray="5 5" />
-        <circle cx={center} cy={center} r={chartRadius * 0.33} fill="none" stroke="#e2e8f0" strokeWidth="1" strokeDasharray="5 5" />
+      <div className="flex-1 flex items-center justify-center w-full">
+        <svg viewBox={`0 0 ${size} ${size}`} className="w-full max-w-[450px] drop-shadow-md">
+          <circle cx={center} cy={center} r={chartRadius} fill="none" stroke="var(--color-line)" strokeOpacity="0.2" strokeWidth="1.5" strokeDasharray="5 5" />
+          <circle cx={center} cy={center} r={chartRadius * 0.66} fill="none" stroke="var(--color-line)" strokeOpacity="0.2" strokeWidth="1" strokeDasharray="5 5" />
+          <circle cx={center} cy={center} r={chartRadius * 0.33} fill="none" stroke="var(--color-line)" strokeOpacity="0.2" strokeWidth="1" strokeDasharray="5 5" />
 
-        {chartData.map((d, i) => {
-          const startAngle = i * angleStep - Math.PI / 2;
-          const endAngle = (i + 1) * angleStep - Math.PI / 2;
-          const midAngle = startAngle + angleStep / 2; 
+          {chartData.map((d, i) => {
+            const startAngle = i * angleStep - Math.PI / 2;
+            const endAngle = (i + 1) * angleStep - Math.PI / 2;
+            const midAngle = startAngle + angleStep / 2; 
 
-          const textRadius = chartRadius + 15; 
-          let rotation = (midAngle * 180) / Math.PI;
-          let anchor: "start" | "end" = "start";
-          
-          if (rotation > 90 || rotation < -90) {
-            rotation += 180;
-            anchor = "end";
-          }
-          const tx = center + textRadius * Math.cos(midAngle);
-          const ty = center + textRadius * Math.sin(midAngle);
-          const shortName = d.nome.length > 14 ? d.nome.substring(0, 13) + '.' : d.nome;
+            const textRadius = chartRadius + 25; 
+            let rotation = (midAngle * 180) / Math.PI;
+            let anchor: "start" | "end" = "start";
+            
+            if (rotation > 90 || rotation < -90) {
+              rotation += 180;
+              anchor = "end";
+            }
+            const tx = center + textRadius * Math.cos(midAngle);
+            const ty = center + textRadius * Math.sin(midAngle);
+            const shortName = d.nome.length > 14 ? d.nome.substring(0, 13) + '.' : d.nome;
 
-          if (d.isSkipped) {
+            if (d.isSkipped) {
+              return (
+                <g key={d.id}>
+                  <path d={generateArcPath(startAngle, endAngle, chartRadius * 0.15)} fill="#94a3b8" stroke="var(--color-line)" strokeWidth="1.5" />
+                  <text x={tx} y={ty} transform={`rotate(${rotation}, ${tx}, ${ty})`} textAnchor={anchor} alignmentBaseline="middle" fontSize="14" fontWeight="900" fontFamily="sans-serif" className="uppercase tracking-tighter fill-muted/50">
+                    {shortName}
+                  </text>
+                </g>
+              );
+            }
+            
+            const rTotal = (d.total / maxTotalTime) * chartRadius; 
+            const rRealTotal = ((d.work + d.rest + d.waste) / maxTotalTime) * chartRadius; 
+            const rRestWork = ((d.work + d.rest) / maxTotalTime) * chartRadius;
+            const rWork = (d.work / maxTotalTime) * chartRadius;
+
             return (
               <g key={d.id}>
-                <path d={generateArcPath(startAngle, endAngle, chartRadius * 0.15)} fill="#94a3b8" stroke="#1a1a1a" strokeWidth="1.5" />
-                <text x={tx} y={ty} transform={`rotate(${rotation}, ${tx}, ${ty})`} textAnchor={anchor} alignmentBaseline="middle" fontSize="14" fontWeight="900" fontFamily="sans-serif" className="uppercase tracking-tighter fill-muted/50">
+                {d.missingTime > 0 && <path d={generateArcPath(startAngle, endAngle, rTotal)} fill="#94a3b8" stroke="var(--color-line)" strokeWidth="1.5" />}
+                <path d={generateArcPath(startAngle, endAngle, rRealTotal)} fill="#ff331f" stroke="var(--color-line)" strokeWidth="1.5" /> 
+                <path d={generateArcPath(startAngle, endAngle, rRestWork)} fill="#ffde59" stroke="var(--color-line)" strokeWidth="1.5" /> 
+                <path d={generateArcPath(startAngle, endAngle, rWork)} fill="#ccff00" stroke="var(--color-line)" strokeWidth="1.5" /> 
+
+                <text x={tx} y={ty} transform={`rotate(${rotation}, ${tx}, ${ty})`} textAnchor={anchor} alignmentBaseline="middle" fontSize="14" fontWeight="900" fontFamily="sans-serif" className="uppercase tracking-tighter fill-main">
                   {shortName}
                 </text>
               </g>
             );
-          }
-          
-          const rTotal = (d.total / maxTotalTime) * chartRadius; // Somma di lavoro+recupero+spreco+mancante
-          const rRealTotal = ((d.work + d.rest + d.waste) / maxTotalTime) * chartRadius; // Somma dati reali
-          const rRestWork = ((d.work + d.rest) / maxTotalTime) * chartRadius;
-          const rWork = (d.work / maxTotalTime) * chartRadius;
-
-          return (
-            <g key={d.id}>
-              {/* Fettona esterna (Serie Mancanti/Non fatte) */}
-              {d.missingTime > 0 && <path d={generateArcPath(startAngle, endAngle, rTotal)} fill="#94a3b8" stroke="#1a1a1a" strokeWidth="1.5" />}
-              {/* Tempo Perso (Rosso) */}
-              <path d={generateArcPath(startAngle, endAngle, rRealTotal)} fill="#ff331f" stroke="#1a1a1a" strokeWidth="1.5" /> 
-              {/* Recupero (Giallo) */}
-              <path d={generateArcPath(startAngle, endAngle, rRestWork)} fill="#ffde59" stroke="#1a1a1a" strokeWidth="1.5" /> 
-              {/* Sforzo TUT (Verde Acido) */}
-              <path d={generateArcPath(startAngle, endAngle, rWork)} fill="#ccff00" stroke="#1a1a1a" strokeWidth="1.5" /> 
-
-              <text x={tx} y={ty} transform={`rotate(${rotation}, ${tx}, ${ty})`} textAnchor={anchor} alignmentBaseline="middle" fontSize="14" fontWeight="900" fontFamily="sans-serif" className="uppercase tracking-tighter fill-main">
-                {shortName}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-
-      <div className="grid grid-cols-2 gap-x-4 gap-y-2 mt-8 w-full text-[10px] font-black uppercase tracking-tighter border-t-2 border-line pt-4 bg-surface">
-        <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#ccff00] border-2 border-line shrink-0"></div><Zap size={10} className="text-muted"/> TUT (Sforzo)</div>
-        <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#ffde59] border-2 border-line shrink-0"></div><Coffee size={10} className="text-muted"/> Recupero</div>
-        <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#ff331f] border-2 border-line shrink-0"></div><Trash2 size={10} className="text-muted"/> Tempo Perso</div>
-        <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#94a3b8] border-2 border-line shrink-0"></div> Serie Mancanti</div>
+          })}
+        </svg>
       </div>
     </div>
   );
@@ -164,6 +234,10 @@ export default function WorkoutSummaryPage() {
   const [totalTime, setTotalTime] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<"riepilogo" | "analisi">("riepilogo");
   const [isSaving, setIsSaving] = useState(false);
+
+  // Stato per la gestione dello swipe
+  const [chartPage, setChartPage] = useState<number>(0);
+  const swipeRef = useRef({ startX: 0 });
 
   useEffect(() => {
     const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -287,7 +361,7 @@ export default function WorkoutSummaryPage() {
   };
 
   return (
-    <main className="flex min-h-screen flex-col items-center bg-base p-4 pb-28 pt-8">
+    <main className="flex min-h-screen flex-col items-center bg-base p-4 pb-28 pt-8 overflow-x-hidden">
       
       <div className="w-full max-w-2xl text-center mb-8">
         <div className="inline-block p-4 bg-brand border-4 border-line shadow-[6px_6px_0px_#000000] mb-4">
@@ -296,7 +370,7 @@ export default function WorkoutSummaryPage() {
         <h1 className="font-heading text-4xl md:text-5xl font-black uppercase text-main leading-tight mb-2 break-words">
           {workoutName}
         </h1>
-        <p className="text-xs font-black text-muted uppercase tracking-widest bg-surface border-2 border-line inline-block px-3 py-1">
+        <p className="text-xs font-black text-muted uppercase tracking-widest bg-surface border-2 border-line inline-block px-3 py-1 shadow-[2px_2px_0px_#000000]">
           {startDateTime}
         </p>
       </div>
@@ -304,13 +378,13 @@ export default function WorkoutSummaryPage() {
       <div className="w-full max-w-2xl flex border-4 border-line mb-8 bg-surface shadow-[4px_4px_0px_#000000] overflow-hidden">
         <button 
           onClick={() => setActiveTab("riepilogo")}
-          className={`flex-1 py-4 flex items-center justify-center gap-2.5 font-black uppercase tracking-widest text-xs transition-all ${activeTab === "riepilogo" ? 'bg-main text-base' : 'bg-surface text-main hover:bg-base/50'}`}
+          className={`flex-1 py-4 flex items-center justify-center gap-2.5 font-black uppercase tracking-widest text-xs transition-all outline-none ${activeTab === "riepilogo" ? 'bg-main text-base' : 'bg-surface text-main hover:bg-base/50'}`}
         >
           <ListOrdered size={18} /> Riepilogo
         </button>
         <button 
           onClick={() => setActiveTab("analisi")}
-          className={`flex-1 py-4 flex items-center justify-center gap-2.5 font-black uppercase tracking-widest text-xs transition-all ${activeTab === "analisi" ? 'bg-main text-base' : 'bg-surface text-main hover:bg-base/50'}`}
+          className={`flex-1 py-4 flex items-center justify-center gap-2.5 font-black uppercase tracking-widest text-xs transition-all outline-none ${activeTab === "analisi" ? 'bg-main text-base' : 'bg-surface text-main hover:bg-base/50'}`}
         >
           <BarChart3 size={18} /> Analisi Tempi
         </button>
@@ -380,19 +454,51 @@ export default function WorkoutSummaryPage() {
             })()}
           </div>
         ) : (
-          <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4">
-             <NightingaleRoseChart exercises={exercises} />
+          <div 
+            className="flex flex-col w-full overflow-hidden animate-in fade-in slide-in-from-bottom-4"
+            onTouchStart={(e) => { swipeRef.current.startX = e.touches[0].clientX; }}
+            onTouchEnd={(e) => {
+              const deltaX = swipeRef.current.startX - e.changedTouches[0].clientX;
+              if (deltaX > 40 && chartPage === 0) setChartPage(1);
+              else if (deltaX < -40 && chartPage === 1) setChartPage(0);
+            }}
+            onMouseDown={(e) => { swipeRef.current.startX = e.clientX; }}
+            onMouseUp={(e) => {
+              const deltaX = swipeRef.current.startX - e.clientX;
+              if (deltaX > 40 && chartPage === 0) setChartPage(1);
+              else if (deltaX < -40 && chartPage === 1) setChartPage(0);
+            }}
+          >
+            <div 
+              className="flex w-full transition-transform duration-300 ease-out"
+              style={{ transform: `translateX(-${chartPage * 100}%)` }}
+            >
+              {/* Pagina 1: Micro (Nightingale) */}
+              <div className="w-full shrink-0 flex items-stretch select-none px-1">
+                <NightingaleRoseChart exercises={exercises} />
+              </div>
+              {/* Pagina 2: Macro (Donut) */}
+              <div className="w-full shrink-0 flex items-stretch select-none px-1">
+                <MacroDonutChart exercises={exercises} totalSessionTime={totalTime} />
+              </div>
+            </div>
+
+            {/* Indicatori Paginazione */}
+            <div className="flex justify-center items-center gap-3 mt-6 mb-2">
+              <button onClick={() => setChartPage(0)} className={`w-3 h-3 rounded-full transition-colors border-2 border-line ${chartPage === 0 ? 'bg-brand' : 'bg-surface'}`} />
+              <button onClick={() => setChartPage(1)} className={`w-3 h-3 rounded-full transition-colors border-2 border-line ${chartPage === 1 ? 'bg-brand' : 'bg-surface'}`} />
+            </div>
           </div>
         )}
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-base/80 backdrop-blur-md border-t-4 border-line z-50">
         <div className="max-w-2xl mx-auto flex gap-4">
-          <button onClick={handleGoBack} disabled={isSaving} className="p-4 bg-surface border-4 border-line shadow-[4px_4px_0px_#000000] hover:bg-base transition-colors active:translate-x-[2px] active:translate-y-[2px] active:shadow-none text-main"><ChevronLeft/></button>
+          <button onClick={handleGoBack} disabled={isSaving} className="p-4 bg-surface border-4 border-line shadow-[4px_4px_0px_#000000] hover:bg-base transition-colors active:translate-x-[2px] active:translate-y-[2px] active:shadow-none text-main outline-none"><ChevronLeft/></button>
           <button 
             onClick={handleFinalSave}
             disabled={isSaving}
-            className="flex-1 py-4 bg-brand border-4 border-line text-base font-black uppercase tracking-widest shadow-[4px_4px_0px_#000000] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+            className="flex-1 py-4 bg-brand border-4 border-line text-base font-black uppercase tracking-widest shadow-[4px_4px_0px_#000000] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed outline-none"
           >
             {isSaving ? <CleanSpinner size={20}/> : <><CheckCircle2 size={20}/> CONFERMA E SALVA</>}
           </button>

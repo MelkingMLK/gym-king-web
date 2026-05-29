@@ -136,14 +136,15 @@ export default function TemplateDetailPage() {
       <div className="w-full max-w-2xl flex flex-col gap-5 relative z-10">
         {giorni.map((giorno, index) => (
           <div 
-            key={giorno.id_giorno} 
+            key={`giorno-${giorno.id_giorno}`} 
             data-drag-index={index}
             onDragEnter={() => { dragOverItem.current = index; }}
             onDragOver={(e) => e.preventDefault()}
             className="w-full bg-surface border-2 border-line p-4 flex items-center justify-between shadow-[6px_6px_0px_#000000] dark:shadow-[6px_6px_0px_#804CD9] transition-all"
           >
             <div className="flex items-center gap-3 overflow-hidden">
-              {/* MANIGLIA DRAG & DROP ISOLATA */}
+              
+              {/* MANIGLIA DRAG & DROP ISOLATA PER MOUSE E TOUCH */}
               <div 
                 draggable 
                 onDragStart={() => { dragItem.current = index; }}
@@ -161,6 +162,7 @@ export default function TemplateDetailPage() {
                   }
                 }}
                 onTouchEnd={(e) => { e.stopPropagation(); commitReorder(); }}
+                style={{ touchAction: 'none' }}
                 className="shrink-0 text-main/30 hover:text-main transition-colors mr-1 cursor-grab active:cursor-grabbing"
               >
                 <GripVertical size={24} strokeWidth={2.5} />

@@ -6,11 +6,14 @@ import { useRouter } from "next/navigation";
 import { ChevronLeft, Play, Dumbbell, CheckCircle2, X, GripVertical, Trophy } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import Spinner from "@/components/Spinner";
-import { initAudioContext, loadAudioFile } from "@/utils/audioEngine";
+import { initAudioContext, loadAudioFile, unlockAudio } from "@/utils/audioEngine";
 
 type Giorno = { id_giorno: number; nome_giorno: string; ordine: number; id_template: string; };
 type Template = { id_template: string; nome_template: string; id_categoria: string | null; Giorni_Template: Giorno[]; };
 
+// ==========================================
+// COMPONENTE CARTA TEMPLATE (Con Drag & Drop Mouse + Touch)
+// ==========================================
 // ==========================================
 // COMPONENTE CARTA TEMPLATE (Con Drag & Drop Mouse + Touch)
 // ==========================================
@@ -38,10 +41,6 @@ const TemplateCard = ({
 
   if (template.Giorni_Template.length === 0) return null;
 
-  // Handler Mouse standard
-  const handleDragStart = (index: number) => { dragItem.current = index; };
-  const handleDragEnter = (index: number) => { dragOverItem.current = index; };
-  
   // Esecuzione del riordino (Condivisa tra Mouse e Touch)
   const commitReorder = async () => {
     if (dragItem.current !== null && dragOverItem.current !== null && dragItem.current !== dragOverItem.current) {
@@ -65,30 +64,9 @@ const TemplateCard = ({
     dragOverItem.current = null;
   };
 
+  const handleDragStart = (index: number) => { dragItem.current = index; };
+  const handleDragEnter = (index: number) => { dragOverItem.current = index; };
   const handleDragEnd = () => { commitReorder(); };
-
-  // Handler Touch specifici per iOS / Mobile PWA
-  const handleTouchStart = (index: number) => {
-    dragItem.current = index;
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (dragItem.current === null) return;
-    const touch = e.touches[0];
-    // Rileva l'elemento geometrico sotto il punto di contatto
-    const elementTarget = document.elementFromPoint(touch.clientX, touch.clientY);
-    const rowContainer = elementTarget?.closest("[data-index]");
-    if (rowContainer) {
-      const currentIndex = parseInt(rowContainer.getAttribute("data-index") || "");
-      if (!isNaN(currentIndex) && currentIndex !== dragItem.current) {
-        dragOverItem.current = currentIndex;
-      }
-    }
-  };
-
-  const handleTouchEnd = () => {
-    commitReorder();
-  };
 
   return (
     <div className="flex flex-col gap-3">
@@ -100,7 +78,7 @@ const TemplateCard = ({
         
         {/* === GIORNI COMPLETATI === */}
         {doneDays.map((giorno) => (
-          <div key={giorno.id_giorno} className="w-full border-2 border-line p-5 flex items-center justify-between bg-surface opacity-40 grayscale select-none transition-all">
+          <div key={`done-${giorno.id_giorno}`} className="w-full border-2 border-line p-5 flex items-center justify-between bg-surface opacity-40 grayscale select-none transition-all">
             <span className="font-heading text-2xl font-black uppercase tracking-tight text-main line-through decoration-brand decoration-4">
               {giorno.nome_giorno}
             </span>
@@ -113,24 +91,41 @@ const TemplateCard = ({
           const isNext = index === 0; 
           return (
             <div 
-              key={giorno.id_giorno}
-              data-index={index} // Fondamentale per il tracciamento geometrico del Touch
-              draggable
-              onDragStart={() => handleDragStart(index)}
+              key={`todo-${giorno.id_giorno}`}
+              data-drag-index={index}
               onDragEnter={() => handleDragEnter(index)}
-              onDragEnd={handleDragEnd}
               onDragOver={(e) => e.preventDefault()}
-              onTouchStart={() => handleTouchStart(index)}
-              onTouchMove={handleTouchMove}
-              onTouchEnd={handleTouchEnd}
-              className={`group w-full border-2 p-6 flex items-center gap-4 transition-all outline-none cursor-grab active:cursor-grabbing
+              className={`group w-full border-2 p-6 flex items-center gap-4 transition-all outline-none
                 ${isNext 
                   ? 'bg-brand border-line shadow-[6px_6px_0px_#000000] dark:shadow-[6px_6px_0px_#804CD9] relative z-10 animate-smooth-scale' 
                   : 'bg-surface border-line shadow-[4px_4px_0px_#000000] dark:shadow-[4px_4px_0px_#804CD9] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_#000000] dark:hover:shadow-[2px_2px_0px_#804CD9] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none'
                 }
               `}
             >
-              <div className="shrink-0 text-main/50 cursor-grab active:cursor-grabbing hover:text-main transition-colors">
+              
+              {/* MANIGLIA DRAG & DROP ISOLATA */}
+              <div 
+                draggable
+                onDragStart={() => handleDragStart(index)}
+                onDragEnd={handleDragEnd}
+                onTouchStart={(e) => { e.stopPropagation(); dragItem.current = index; }}
+                onTouchMove={(e) => {
+                  e.stopPropagation();
+                  if (dragItem.current === null) return;
+                  const touch = e.touches[0];
+                  const elementTarget = document.elementFromPoint(touch.clientX, touch.clientY);
+                  const rowContainer = elementTarget?.closest("[data-drag-index]");
+                  if (rowContainer) {
+                    const currentIndex = parseInt(rowContainer.getAttribute("data-drag-index") || "");
+                    if (!isNaN(currentIndex) && currentIndex !== dragItem.current) {
+                      dragOverItem.current = currentIndex;
+                    }
+                  }
+                }}
+                onTouchEnd={(e) => { e.stopPropagation(); commitReorder(); }}
+                style={{ touchAction: 'none' }}
+                className="shrink-0 text-main/50 cursor-grab active:cursor-grabbing hover:text-main transition-colors"
+              >
                 <GripVertical size={28} strokeWidth={2.5} />
               </div>
 
@@ -264,25 +259,25 @@ export default function StartWorkoutPage() {
     }
   };
 
-  const startFreeWorkout = () => {
+const startFreeWorkout = () => {
+    unlockAudio(); // <-- SBLOCCO SINCRONO
     const preferredSound = localStorage.getItem('gymking_sound') || 'sounds/gong.mp3';
-    initAudioContext();
     loadAudioFile(preferredSound.startsWith('/') ? preferredSound : `/${preferredSound}`);
     localStorage.removeItem("gymking_active_session");
     router.push(`/active-workout`);
   };
 
   const handleStartTemplateWorkout = () => {
+    unlockAudio(); // <-- SBLOCCO SINCRONO
     const preferredSound = localStorage.getItem('gymking_sound') || 'sounds/gong.mp3';
-    initAudioContext();
     loadAudioFile(preferredSound.startsWith('/') ? preferredSound : `/${preferredSound}`);
     localStorage.removeItem("gymking_active_session");
     setCountdown(3);
   };
 
   const handleResumeWorkout = () => {
+    unlockAudio(); // <-- SBLOCCO SINCRONO
     const preferredSound = localStorage.getItem('gymking_sound') || 'sounds/gong.mp3';
-    initAudioContext();
     loadAudioFile(preferredSound.startsWith('/') ? preferredSound : `/${preferredSound}`);
     router.push("/active-workout");
   };
@@ -358,7 +353,7 @@ export default function StartWorkoutPage() {
               className="w-full py-5 bg-transparent border-2 border-dashed border-muted text-muted flex items-center justify-center gap-3 transition-colors hover:bg-surface hover:border-main hover:text-main"
             >
               <Dumbbell size={24} strokeWidth={2.5} />
-              <span className="font-black uppercase tracking-widest text-sm">Allenamento Extra (Libero)</span>
+              <span className="font-black uppercase tracking-widest text-sm">Allenamento (Libero)</span>
             </button>
           </div>
         )}

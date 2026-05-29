@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo, Suspense } from "react";
-
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, Check, Trophy, Plus, MoreHorizontal, PlayCircle, ChevronDown, CheckCircle, Trash2, X, AlertCircle, History, Dumbbell } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -72,13 +71,20 @@ type EsercizioBase = { id_esercizio: number; nome: string; gif_url?: string; };
 type ActiveSet = { exIndex: number; setIndex: number; phase: 'prep' | 'work'; startPrepTime: number; startWorkTime: number | null; };
 type RestingSet = { exIndex: number; setIndex: number; startTs: number; }; 
 
-  function WorkoutTrackerContent() {
+// === FUNZIONE PRIVATA (NON ESPORTATA) ===
+function WorkoutTrackerContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const dayId = searchParams.get("day");
-  const templateId = searchParams.get("template");
+  
+  // Isolata la dipendenza passiva dai parametri URL
+  const urlDayId = searchParams.get("day");
+  const urlTemplateId = searchParams.get("template");
 
-  // Stato Globale
+  // Stato Globale Identificativo
+  const [dayId, setDayId] = useState<string | null>(null);
+  const [templateId, setTemplateId] = useState<string | null>(null);
+
+  // Stato Dati
   const [isLoading, setIsLoading] = useState(true);
   const [exercises, setExercises] = useState<ExerciseLog[]>([]);
   const [workoutName, setWorkoutName] = useState<string>("Allenamento Libero");
@@ -147,10 +153,19 @@ type RestingSet = { exIndex: number; setIndex: number; startTs: number; };
     async function loadWorkout() {
       setIsLoading(true);
       const savedData = localStorage.getItem(LOCAL_STORAGE_KEY);
+      
       if (savedData) {
         try {
           const parsed = JSON.parse(savedData);
-          if (parsed.dayId === dayId || !dayId) {
+          
+          // Ripristino garantito: vince il localStorage, fallback sull'URL
+          const currentDayId = parsed.dayId || urlDayId;
+          const currentTemplateId = parsed.templateId || urlTemplateId;
+          
+          setDayId(currentDayId);
+          setTemplateId(currentTemplateId);
+
+          if (currentDayId === urlDayId || !urlDayId) {
             setWorkoutName(parsed.workoutName); 
             setExercises(parsed.exercises); 
             setStartTime(parsed.startTime); 
@@ -171,10 +186,15 @@ type RestingSet = { exIndex: number; setIndex: number; startTs: number; };
         } catch (e) { console.error(e); }
       }
 
-      if (!dayId) { setIsLoading(false); return; }
+      // Se è un allenamento nuovo (nessun salvataggio valido precedente):
+      if (!urlDayId) { setIsLoading(false); return; }
+
+      setDayId(urlDayId);
+      setTemplateId(urlTemplateId);
+
       try {
         setStartTime(Date.now());
-        const { data: dayData } = await supabase.from('Giorni_Template').select('nome_giorno').eq('id_giorno', dayId).single();
+        const { data: dayData } = await supabase.from('Giorni_Template').select('nome_giorno').eq('id_giorno', urlDayId).single();
         if (dayData) setWorkoutName(dayData.nome_giorno);
 
         let pastSets: any[] = [];
@@ -182,7 +202,7 @@ type RestingSet = { exIndex: number; setIndex: number; startTs: number; };
         const { data: lastSession } = await supabase
           .from('Storico_Allenamenti')
           .select('id_sessione')
-          .eq('id_giorno', dayId)
+          .eq('id_giorno', urlDayId)
           .order('inizio_ts', { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -195,7 +215,7 @@ type RestingSet = { exIndex: number; setIndex: number; startTs: number; };
           if (storiche) pastSets = storiche;
         }
 
-        const { data: exData } = await supabase.from('Scheda_Esercizi').select('*, Esercizi(nome, gif_url)').eq('id_giorno', dayId).order('ordine');
+        const { data: exData } = await supabase.from('Scheda_Esercizi').select('*, Esercizi(nome, gif_url)').eq('id_giorno', urlDayId).order('ordine');
         if (exData) {
           setExercises(exData.map((ex: any) => ({
             id_scheda_esercizio: ex.id_scheda_esercizio, 
@@ -225,7 +245,7 @@ type RestingSet = { exIndex: number; setIndex: number; startTs: number; };
       } catch (error) { console.error(error); } finally { setIsLoading(false); }
     }
     loadWorkout();
-  }, [dayId]);
+  }, [urlDayId, urlTemplateId]);
 
   // Generazione Dati Analitici per la Modale Storico
   useEffect(() => {
@@ -352,12 +372,14 @@ type RestingSet = { exIndex: number; setIndex: number; startTs: number; };
     setExtraStartTime(null);
     setIsRestModalOpen(false);
   };
-
-  const updateSet = (exIndex: number, setIndex: number, field: 'reps' | 'weight', value: string) => {
+const updateSet = (exIndex: number, setIndex: number, field: 'reps' | 'weight', value: string) => {
+    // SANIFICAZIONE: Sostituisce eventuali virgole con punti
+    const sanitizedValue = field === 'weight' ? value.replace(',', '.') : value;
+    
     setExercises(prev => {
       const next = [...prev];
       const newSets = [...next[exIndex].sets];
-      newSets[setIndex] = { ...newSets[setIndex], [field]: value };
+      newSets[setIndex] = { ...newSets[setIndex], [field]: sanitizedValue };
       next[exIndex] = { ...next[exIndex], sets: newSets };
       return next;
     });
@@ -759,14 +781,13 @@ type RestingSet = { exIndex: number; setIndex: number; startTs: number; };
       )}
     </div>
   );
-  
 }
-// Aggiungi questo esattamente in fondo al file, dopo la chiusura di WorkoutTrackerContent
+
+// === COMPONENTE ESPORTATO (CON CONFINE SUSPENSE) ===
 export default function WorkoutTracker() {
   return (
     <Suspense fallback={
       <div className="flex min-h-screen items-center justify-center bg-base text-main">
-        {/* Usiamo un div semplice o il tuo CleanSpinner per l'attesa */}
         <span className="font-heading text-2xl font-black uppercase animate-pulse">
           Caricamento Dati...
         </span>

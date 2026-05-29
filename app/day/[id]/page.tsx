@@ -7,7 +7,7 @@ import { ChevronLeft, Plus, Search, X, Trash2, Edit3, ChevronRight, ChevronDown,
 import { supabase } from "../../../lib/supabase";
 import Fuse from "fuse.js";
 
-// === SPINNER REATTIVO PURO TAILWIND (PUNTO F) ===
+// === SPINNER REATTIVO PURO TAILWIND ===
 const CleanSpinner = ({ size = 24 }: { size?: number }) => {
   const strokeWidth = Math.max(2, Math.round(size * 0.1));
   return (
@@ -29,8 +29,8 @@ type SchedaEsercizio = {
   id_giorno: number; 
   id_esercizio: number; 
   ordine: number; 
-  serie: String; 
-  ripetizioni: String; 
+  serie: string; 
+  ripetizioni: string; 
   recupero_sec: number; 
   unita_misura: string; 
   Esercizi: { nome: string; gif_url?: string }; 
@@ -119,10 +119,6 @@ export default function DayEditorPage() {
   const [unitaMisura, setUnitaMisura] = useState("KG"); 
 
   const [swipedExerciseId, setSwipedExerciseId] = useState<number | null>(null);
-  const [touchStart, setTouchStart] = useState<number | null>(null);
-  const [touchEnd, setTouchEnd] = useState<number | null>(null);
-  const [isDraggingSwipe, setIsDraggingSwipe] = useState(false);
-
   const [previewGif, setPreviewGif] = useState<string | null>(null);
 
   const dragItem = useRef<number | null>(null);
@@ -238,7 +234,6 @@ export default function DayEditorPage() {
   };
 
   const handleOpenEdit = (esercizio: SchedaEsercizio) => {
-    if (swipedExerciseId === esercizio.id_scheda_esercizio) { setSwipedExerciseId(null); return; }
     setEditingId(esercizio.id_scheda_esercizio);
     setSelectedExercise({ id_esercizio: esercizio.id_esercizio, nome: esercizio.Esercizi?.nome || "" });
     setSerie(String(esercizio.serie)); 
@@ -253,16 +248,7 @@ export default function DayEditorPage() {
     setIsSearchSheetOpen(false); setIsDetailSheetOpen(true);
   };
 
-  const handleSwipeStart = (clientX: number) => { setTouchEnd(null); setTouchStart(clientX); setIsDraggingSwipe(true); };
-  const handleSwipeMove = (clientX: number) => { if (isDraggingSwipe) setTouchEnd(clientX); };
-  const handleSwipeEnd = (id: number) => {
-    setIsDraggingSwipe(false);
-    if (!touchStart || !touchEnd) return;
-    const distance = touchStart - touchEnd;
-    if (distance > 50) setSwipedExerciseId(id);
-    else if (distance < -50) setSwipedExerciseId(null);
-  };
-
+  // Logica Drag Isolato
   const handleDragStart = (index: number) => { dragItem.current = index; };
   const handleDragEnter = (index: number) => { dragOverItem.current = index; };
   const handleDragEnd = async () => {
@@ -316,59 +302,112 @@ export default function DayEditorPage() {
             relMuscoli.some(rm => String(rm.id_esercizio ?? (rm as any).esercizio_id) === esId && String(rm.id_gruppo ?? (rm as any).gruppo_id) === String(m.id_gruppo ?? m.id))
           );
 
+          // Variabili locali per il tracking geometrico (nessun re-render distruttivo)
+          let startX = 0;
+          let startY = 0;
+
           return (
             <div 
-              key={es.id_scheda_esercizio} 
+              key={`esercizio-${es.id_scheda_esercizio}`} 
+              data-drag-index={index}
               onDragEnter={() => handleDragEnter(index)} 
               onDragOver={(e) => e.preventDefault()}
-              className="relative w-full border-2 border-line shadow-[6px_6px_0px_#000000] dark:shadow-[6px_6px_0px_#804CD9] bg-brand overflow-hidden"
+              className="relative w-full border-2 border-line shadow-[6px_6px_0px_#000000] dark:shadow-[6px_6px_0px_#804CD9] bg-[#ff331f] overflow-hidden"
             >
-              <div className="absolute top-0 bottom-0 right-0 w-24 flex items-center justify-center">
-                <button onClick={() => handleDeleteExercise(es.id_scheda_esercizio)} className="w-full h-full flex items-center justify-center text-base">
+              {/* DELETE BUTTON BACKGROUND (Sfondo puramente rosso per eliminazione) */}
+              <div className="absolute top-0 bottom-0 right-0 w-24 flex items-center justify-center text-white">
+                <button onClick={() => handleDeleteExercise(es.id_scheda_esercizio)} className="w-full h-full flex items-center justify-center outline-none">
                   <Trash2 size={28} strokeWidth={2.5} />
                 </button>
               </div>
               
+              {/* SWIPE & CLICK CONTAINER (Intera riga interagibile senza trasparenze anomale) */}
               <div 
-                onTouchStart={(e) => handleSwipeStart(e.targetTouches[0].clientX)} 
-                onTouchMove={(e) => handleSwipeMove(e.targetTouches[0].clientX)} 
-                onTouchEnd={() => handleSwipeEnd(es.id_scheda_esercizio)}
-                onMouseDown={(e) => handleSwipeStart(e.clientX)}
-                onMouseMove={(e) => handleSwipeMove(e.clientX)}
-                onMouseUp={() => handleSwipeEnd(es.id_scheda_esercizio)}
-                onMouseLeave={() => { if (isDraggingSwipe) handleSwipeEnd(es.id_scheda_esercizio) }}
-                className={`relative z-10 w-full bg-surface p-4 border-r-2 border-line flex items-center justify-between transition-transform duration-300 ${swipedExerciseId === es.id_scheda_esercizio ? '-translate-x-24' : ''}`}
+                onTouchStart={(e) => {
+                  startX = e.touches[0].clientX;
+                  startY = e.touches[0].clientY;
+                }} 
+                onTouchEnd={(e) => {
+                  const endX = e.changedTouches[0].clientX;
+                  const endY = e.changedTouches[0].clientY;
+                  const deltaX = startX - endX;
+                  const deltaY = Math.abs(startY - endY);
+
+                  if (deltaY < 30) {
+                    if (deltaX > 40) setSwipedExerciseId(es.id_scheda_esercizio);
+                    else if (deltaX < -40) setSwipedExerciseId(null);
+                    else if (Math.abs(deltaX) < 10) {
+                      if (swipedExerciseId === es.id_scheda_esercizio) setSwipedExerciseId(null);
+                      else handleOpenEdit(es);
+                    }
+                  }
+                }}
+                onMouseDown={(e) => {
+                  startX = e.clientX;
+                  startY = e.clientY;
+                }}
+                onMouseUp={(e) => {
+                  const endX = e.clientX;
+                  const endY = e.clientY;
+                  const deltaX = startX - endX;
+                  const deltaY = Math.abs(startY - endY);
+
+                  if (deltaY < 30) {
+                    if (deltaX > 40) setSwipedExerciseId(es.id_scheda_esercizio);
+                    else if (deltaX < -40) setSwipedExerciseId(null);
+                    else if (Math.abs(deltaX) < 10) {
+                      if (swipedExerciseId === es.id_scheda_esercizio) setSwipedExerciseId(null);
+                      else handleOpenEdit(es);
+                    }
+                  }
+                }}
+                className={`relative z-10 w-full bg-surface p-4 border-r-2 border-line flex items-center justify-between transition-transform duration-300 cursor-pointer ${swipedExerciseId === es.id_scheda_esercizio ? '-translate-x-24' : ''}`}
               >
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 pointer-events-none">
+                  
+                  {/* MANIGLIA DRAG & DROP ISOLATA */}
                   <div 
                     draggable 
-                    onDragStart={() => handleDragStart(index)}
-                    onDragEnd={handleDragEnd}
+                    onDragStart={(e) => { e.stopPropagation(); handleDragStart(index); }}
+                    onDragEnd={(e) => { e.stopPropagation(); handleDragEnd(); }}
+                    onTouchStart={(e) => { e.stopPropagation(); dragItem.current = index; }}
+                    onTouchMove={(e) => {
+                      e.stopPropagation();
+                      if (dragItem.current === null) return;
+                      const touch = e.touches[0];
+                      const elementTarget = document.elementFromPoint(touch.clientX, touch.clientY);
+                      const rowContainer = elementTarget?.closest("[data-drag-index]");
+                      if (rowContainer) {
+                        const currentIndex = parseInt(rowContainer.getAttribute("data-drag-index") || "");
+                        if (!isNaN(currentIndex) && currentIndex !== dragItem.current) dragOverItem.current = currentIndex;
+                      }
+                    }}
+                    onTouchEnd={(e) => { e.stopPropagation(); handleDragEnd(); }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onMouseUp={(e) => e.stopPropagation()}
+                    style={{ touchAction: 'none', pointerEvents: 'auto' }}
                     className="shrink-0 text-main/30 hover:text-main transition-colors mr-1 cursor-grab active:cursor-grabbing"
                   >
                     <GripVertical size={24} strokeWidth={2.5} />
                   </div>
 
-                  <ExerciseIcon 
-                    nome={es.Esercizi?.nome} 
-                    gif_url={es.Esercizi?.gif_url} 
-                    muscles={relatedMuscles} 
-                    onImageClick={setPreviewGif} 
-                  />
+                  <div style={{ pointerEvents: 'auto' }}>
+                    <ExerciseIcon 
+                      nome={es.Esercizi?.nome} 
+                      gif_url={es.Esercizi?.gif_url} 
+                      muscles={relatedMuscles} 
+                      onImageClick={setPreviewGif} 
+                    />
+                  </div>
 
-                  <div 
-                    className="flex flex-col gap-1 cursor-pointer ml-1"
-                    onClick={() => {
-                      if (touchStart && touchEnd && Math.abs(touchStart - touchEnd) > 15) return;
-                      handleOpenEdit(es);
-                    }}
-                  >
+                  {/* CONTENUTO TESTUALE */}
+                  <div className="flex flex-col gap-1 ml-1">
                     <span className="font-heading text-lg text-main font-black uppercase tracking-tight leading-tight line-clamp-1">{es.Esercizi?.nome || "Esercizio"}</span>
                     
                     {relatedMuscles.length > 0 && (
                       <div className="flex flex-wrap gap-1">
                         {relatedMuscles.map(m => (
-                          <span key={m.id_gruppo ?? m.id} className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 bg-line text-base">
+                          <span key={`muscolo-${m.id_gruppo ?? m.id}`} className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 bg-line text-base">
                             {m.nome}
                           </span>
                         ))}
@@ -379,7 +418,7 @@ export default function DayEditorPage() {
                   </div>
                 </div>
 
-                <Edit3 size={20} strokeWidth={2.5} className="text-muted pointer-events-none shrink-0 ml-2" />
+                <Edit3 size={20} strokeWidth={2.5} className="text-muted shrink-0 ml-2 pointer-events-none" />
               </div>
             </div>
           );
@@ -430,7 +469,7 @@ export default function DayEditorPage() {
                       {muscoli.map(m => {
                         const mId = String(m.id_gruppo ?? m.id);
                         return (
-                          <button key={mId} onClick={() => toggleMuscle(mId)} className={`px-4 py-2 border-2 border-line text-xs font-black uppercase tracking-widest transition-all ${selectedMuscles.includes(mId) ? 'bg-brand text-base shadow-[2px_2px_0px_#000000] dark:shadow-[2px_2px_0px_#804CD9] translate-x-[-1px] translate-y-[-1px]' : 'bg-surface text-main hover:bg-base'}`}>
+                          <button key={`btn-muscolo-${mId}`} onClick={() => toggleMuscle(mId)} className={`px-4 py-2 border-2 border-line text-xs font-black uppercase tracking-widest transition-all ${selectedMuscles.includes(mId) ? 'bg-brand text-base shadow-[2px_2px_0px_#000000] dark:shadow-[2px_2px_0px_#804CD9] translate-x-[-1px] translate-y-[-1px]' : 'bg-surface text-main hover:bg-base'}`}>
                             {m.nome}
                           </button>
                         )
@@ -451,7 +490,7 @@ export default function DayEditorPage() {
                       {attrezzi.map(a => {
                         const aId = String(a.id_attrezzo ?? a.id);
                         return (
-                          <button key={aId} onClick={() => setSelectedEquipment(selectedEquipment === aId ? null : aId)} className={`px-4 py-2 border-2 border-line text-xs font-black uppercase tracking-widest transition-all ${selectedEquipment === aId ? 'bg-brand text-base shadow-[2px_2px_0px_#000000] dark:shadow-[2px_2px_0px_#804CD9] translate-x-[-1px] translate-y-[-1px]' : 'bg-surface text-main hover:bg-base'}`}>
+                          <button key={`btn-attrezzo-${aId}`} onClick={() => setSelectedEquipment(selectedEquipment === aId ? null : aId)} className={`px-4 py-2 border-2 border-line text-xs font-black uppercase tracking-widest transition-all ${selectedEquipment === aId ? 'bg-brand text-base shadow-[2px_2px_0px_#000000] dark:shadow-[2px_2px_0px_#804CD9] translate-x-[-1px] translate-y-[-1px]' : 'bg-surface text-main hover:bg-base'}`}>
                             {a.nome}
                           </button>
                         )
@@ -469,7 +508,7 @@ export default function DayEditorPage() {
                   );
 
                   return (
-                    <button key={esId} onClick={() => handleExerciseSelect(es)} className="group w-full text-left p-4 bg-surface border-2 border-line hover:shadow-[4px_4px_0px_#000000] dark:hover:shadow-[4px_4px_0px_#804CD9] hover:-translate-y-1 flex justify-between items-center transition-all">
+                    <button key={`result-${esId}`} onClick={() => handleExerciseSelect(es)} className="group w-full text-left p-4 bg-surface border-2 border-line hover:shadow-[4px_4px_0px_#000000] dark:hover:shadow-[4px_4px_0px_#804CD9] hover:-translate-y-1 flex justify-between items-center transition-all">
                       <div className="flex items-center gap-4">
                         <ExerciseIcon 
                           nome={es.nome} 
@@ -482,7 +521,7 @@ export default function DayEditorPage() {
                           {relatedMuscles.length > 0 && (
                             <div className="flex flex-wrap gap-1">
                               {relatedMuscles.map(m => (
-                                <span key={m.id_gruppo ?? m.id} className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 bg-line text-base">
+                                <span key={`tag-muscolo-${m.id_gruppo ?? m.id}`} className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 bg-line text-base">
                                   {m.nome}
                                 </span>
                               ))}
