@@ -93,6 +93,13 @@ export default function DayEditorPage() {
   const [giorno, setGiorno] = useState<Giorno | null>(null);
   const [eserciziGiorno, setEserciziGiorno] = useState<SchedaEsercizio[]>([]);
   
+  // === REFS UNICI PER IL DRAG & DROP VETTORIALE ===
+  const dragItem = useRef<number | null>(null);
+  const dragOverItem = useRef<number | null>(null); 
+  const listRef = useRef(eserciziGiorno);
+  
+  useEffect(() => { listRef.current = eserciziGiorno; }, [eserciziGiorno]);
+  
   const [tuttiEsercizi, setTuttiEsercizi] = useState<Esercizio[]>([]);
   const [muscoli, setMuscoli] = useState<Muscolo[]>([]);
   const [attrezzi, setAttrezzi] = useState<Attrezzo[]>([]);
@@ -120,9 +127,6 @@ export default function DayEditorPage() {
 
   const [swipedExerciseId, setSwipedExerciseId] = useState<number | null>(null);
   const [previewGif, setPreviewGif] = useState<string | null>(null);
-
-  const dragItem = useRef<number | null>(null);
-  const dragOverItem = useRef<number | null>(null);
 
   async function fetchData() {
     setIsLoading(true);
@@ -248,35 +252,6 @@ export default function DayEditorPage() {
     setIsSearchSheetOpen(false); setIsDetailSheetOpen(true);
   };
 
-  // Logica Drag Isolato
-  const handleDragStart = (index: number) => { dragItem.current = index; };
-  const handleDragEnter = (index: number) => { dragOverItem.current = index; };
-  const handleDragEnd = async () => {
-    if (dragItem.current !== null && dragOverItem.current !== null && dragItem.current !== dragOverItem.current) {
-      const newExercises = [...eserciziGiorno];
-      const draggedItemContent = newExercises[dragItem.current];
-      newExercises.splice(dragItem.current, 1);
-      newExercises.splice(dragOverItem.current, 0, draggedItemContent);
-
-      const updatedExercises = newExercises.map((es, idx) => ({ ...es, ordine: idx + 1 }));
-      setEserciziGiorno(updatedExercises); 
-
-      const updates = updatedExercises.map(es => ({
-        id_scheda_esercizio: es.id_scheda_esercizio,
-        id_giorno: es.id_giorno,
-        id_esercizio: es.id_esercizio,
-        serie: es.serie,
-        ripetizioni: es.ripetizioni,
-        recupero_sec: es.recupero_sec,
-        ordine: es.ordine,
-        unita_misura: es.unita_misura 
-      }));
-      await supabase.from('Scheda_Esercizi').upsert(updates);
-    }
-    dragItem.current = null;
-    dragOverItem.current = null;
-  };
-
   if (isLoading) return <main className="flex min-h-screen items-center justify-center bg-base text-main"><CleanSpinner size={64} /></main>;
 
   return (
@@ -302,123 +277,91 @@ export default function DayEditorPage() {
             relMuscoli.some(rm => String(rm.id_esercizio ?? (rm as any).esercizio_id) === esId && String(rm.id_gruppo ?? (rm as any).gruppo_id) === String(m.id_gruppo ?? m.id))
           );
 
-          // Variabili locali per il tracking geometrico (nessun re-render distruttivo)
-          let startX = 0;
-          let startY = 0;
-
           return (
             <div 
               key={`esercizio-${es.id_scheda_esercizio}`} 
               data-drag-index={index}
-              onDragEnter={() => handleDragEnter(index)} 
-              onDragOver={(e) => e.preventDefault()}
               className="relative w-full border-2 border-line shadow-[6px_6px_0px_#000000] dark:shadow-[6px_6px_0px_#804CD9] bg-[#ff331f] overflow-hidden"
             >
-              {/* DELETE BUTTON BACKGROUND (Sfondo puramente rosso per eliminazione) */}
+              {/* DELETE BUTTON BACKGROUND */}
               <div className="absolute top-0 bottom-0 right-0 w-24 flex items-center justify-center text-white">
                 <button onClick={() => handleDeleteExercise(es.id_scheda_esercizio)} className="w-full h-full flex items-center justify-center outline-none">
                   <Trash2 size={28} strokeWidth={2.5} />
                 </button>
               </div>
               
-              {/* SWIPE & CLICK CONTAINER (Intera riga interagibile senza trasparenze anomale) */}
-              <div 
-                onTouchStart={(e) => {
-                  startX = e.touches[0].clientX;
-                  startY = e.touches[0].clientY;
-                }} 
-                onTouchEnd={(e) => {
-                  const endX = e.changedTouches[0].clientX;
-                  const endY = e.changedTouches[0].clientY;
-                  const deltaX = startX - endX;
-                  const deltaY = Math.abs(startY - endY);
-
-                  if (deltaY < 30) {
-                    if (deltaX > 40) setSwipedExerciseId(es.id_scheda_esercizio);
-                    else if (deltaX < -40) setSwipedExerciseId(null);
-                    else if (Math.abs(deltaX) < 10) {
-                      if (swipedExerciseId === es.id_scheda_esercizio) setSwipedExerciseId(null);
-                      else handleOpenEdit(es);
-                    }
-                  }
-                }}
-                onMouseDown={(e) => {
-                  startX = e.clientX;
-                  startY = e.clientY;
-                }}
-                onMouseUp={(e) => {
-                  const endX = e.clientX;
-                  const endY = e.clientY;
-                  const deltaX = startX - endX;
-                  const deltaY = Math.abs(startY - endY);
-
-                  if (deltaY < 30) {
-                    if (deltaX > 40) setSwipedExerciseId(es.id_scheda_esercizio);
-                    else if (deltaX < -40) setSwipedExerciseId(null);
-                    else if (Math.abs(deltaX) < 10) {
-                      if (swipedExerciseId === es.id_scheda_esercizio) setSwipedExerciseId(null);
-                      else handleOpenEdit(es);
-                    }
-                  }
-                }}
-                className={`relative z-10 w-full bg-surface p-4 border-r-2 border-line flex items-center justify-between transition-transform duration-300 cursor-pointer ${swipedExerciseId === es.id_scheda_esercizio ? '-translate-x-24' : ''}`}
+              {/* CONTAINER INTERAGIBILE RIGIDO */}
+             <div 
+                className={`relative z-10 w-full bg-surface p-4 border-r-2 border-line flex items-center justify-between transition-transform duration-300 ${swipedExerciseId === es.id_scheda_esercizio ? '-translate-x-24' : ''}`}
               >
-                <div className="flex items-center gap-3 pointer-events-none">
+                <div className="flex items-center gap-3">
                   
                   {/* MANIGLIA DRAG & DROP ISOLATA */}
                   <div 
-                    draggable 
-                    onDragStart={(e) => { e.stopPropagation(); handleDragStart(index); }}
-                    onDragEnd={(e) => { e.stopPropagation(); handleDragEnd(); }}
                     onTouchStart={(e) => { e.stopPropagation(); dragItem.current = index; }}
                     onTouchMove={(e) => {
-                      e.stopPropagation();
                       if (dragItem.current === null) return;
                       const touch = e.touches[0];
                       const elementTarget = document.elementFromPoint(touch.clientX, touch.clientY);
                       const rowContainer = elementTarget?.closest("[data-drag-index]");
                       if (rowContainer) {
-                        const currentIndex = parseInt(rowContainer.getAttribute("data-drag-index") || "");
-                        if (!isNaN(currentIndex) && currentIndex !== dragItem.current) dragOverItem.current = currentIndex;
+                        const hoverIndex = parseInt(rowContainer.getAttribute("data-drag-index") || "");
+                        if (!isNaN(hoverIndex) && hoverIndex !== dragItem.current) {
+                          setEserciziGiorno(prev => {
+                            const newArr = [...prev];
+                            const dragged = newArr[dragItem.current!];
+                            newArr.splice(dragItem.current!, 1);
+                            newArr.splice(hoverIndex, 0, dragged);
+                            dragItem.current = hoverIndex;
+                            return newArr;
+                          });
+                        }
                       }
                     }}
-                    onTouchEnd={(e) => { e.stopPropagation(); handleDragEnd(); }}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onMouseUp={(e) => e.stopPropagation()}
-                    style={{ touchAction: 'none', pointerEvents: 'auto' }}
-                    className="shrink-0 text-main/30 hover:text-main transition-colors mr-1 cursor-grab active:cursor-grabbing"
+                    onTouchEnd={async (e) => { 
+                      e.stopPropagation(); 
+                      if (dragItem.current === null) return;
+                      dragItem.current = null;
+                      
+                      const currentList = listRef.current;
+                      const updatedExercises = currentList.map((es, idx) => ({ ...es, ordine: idx + 1 }));
+                      setEserciziGiorno(updatedExercises); 
+
+                      const updates = updatedExercises.map(es => ({
+                        id_scheda_esercizio: es.id_scheda_esercizio,
+                        id_giorno: es.id_giorno,
+                        id_esercizio: es.id_esercizio,
+                        serie: es.serie,
+                        ripetizioni: es.ripetizioni,
+                        recupero_sec: es.recupero_sec,
+                        ordine: es.ordine,
+                        unita_misura: es.unita_misura 
+                      }));
+                      await supabase.from('Scheda_Esercizi').upsert(updates);
+                    }}
+                    className="shrink-0 text-main/30 hover:text-main transition-colors mr-1 cursor-grab active:cursor-grabbing touch-none p-2 -ml-2"
                   >
                     <GripVertical size={24} strokeWidth={2.5} />
                   </div>
 
-                  <div style={{ pointerEvents: 'auto' }}>
-                    <ExerciseIcon 
-                      nome={es.Esercizi?.nome} 
-                      gif_url={es.Esercizi?.gif_url} 
-                      muscles={relatedMuscles} 
-                      onImageClick={setPreviewGif} 
-                    />
-                  </div>
+                  <ExerciseIcon nome={es.Esercizi?.nome} gif_url={es.Esercizi?.gif_url} muscles={relatedMuscles} onImageClick={setPreviewGif} />
 
-                  {/* CONTENUTO TESTUALE */}
-                  <div className="flex flex-col gap-1 ml-1">
+                  <div 
+                    className="flex flex-col gap-1 cursor-pointer ml-1"
+                    onClick={() => handleOpenEdit(es)}
+                  >
                     <span className="font-heading text-lg text-main font-black uppercase tracking-tight leading-tight line-clamp-1">{es.Esercizi?.nome || "Esercizio"}</span>
-                    
                     {relatedMuscles.length > 0 && (
                       <div className="flex flex-wrap gap-1">
                         {relatedMuscles.map(m => (
-                          <span key={`muscolo-${m.id_gruppo ?? m.id}`} className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 bg-line text-base">
-                            {m.nome}
-                          </span>
+                          <span key={m.id_gruppo ?? m.id} className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 bg-line text-base">{m.nome}</span>
                         ))}
                       </div>
                     )}
-
                     <span className="text-muted font-bold text-xs tracking-wider uppercase mt-1">{es.serie} SET • {es.ripetizioni} RIP • {es.recupero_sec}S REST • {es.unita_misura || 'KG'}</span>
                   </div>
                 </div>
-
-                <Edit3 size={20} strokeWidth={2.5} className="text-muted shrink-0 ml-2 pointer-events-none" />
+                <Edit3 size={20} strokeWidth={2.5} className="text-muted pointer-events-none shrink-0 ml-2" />
               </div>
             </div>
           );

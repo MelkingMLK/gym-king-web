@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, Check, Trophy, Plus, MoreHorizontal, PlayCircle, ChevronDown, CheckCircle, Trash2, X, AlertCircle, History, Dumbbell } from "lucide-react";
+import { ChevronLeft, Check, Trophy, Plus, MoreHorizontal, PlayCircle, ChevronDown, CheckCircle, Trash2, X, AlertCircle, History, Dumbbell, Search, ChevronRight } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import Fuse from "fuse.js";
 import { playSound } from "@/utils/audioEngine";
@@ -67,29 +67,29 @@ const CleanSpinner = ({ size = 24 }: { size?: number }) => {
 // === TIPI STRUTTURATI ===
 type SetData = { id: string; reps: string; weight: string; completed: boolean; workDurationSec?: number | null; actualRestSec?: number | null; wasteDurationSec?: number | null; completedAt?: number; pastWeight?: string; pastReps?: string; };
 type ExerciseLog = { id_scheda_esercizio?: number; id_esercizio: number; nome: string; gif_url?: string; recupero_sec: number; target_serie: number; target_reps: string; unita_misura: string; sets: SetData[]; };
-type EsercizioBase = { id_esercizio: number; nome: string; gif_url?: string; };
+type EsercizioBase = { id_esercizio: number; id?: number; nome: string; gif_url?: string; };
 type ActiveSet = { exIndex: number; setIndex: number; phase: 'prep' | 'work'; startPrepTime: number; startWorkTime: number | null; };
 type RestingSet = { exIndex: number; setIndex: number; startTs: number; }; 
+type Muscolo = { id_gruppo?: number; id?: number; nome: string; };
+type Attrezzo = { id_attrezzo?: number; id?: number; nome: string; };
+type RelazioneMuscolo = { id_esercizio?: number; id_gruppo?: number; };
+type RelazioneAttrezzo = { id_esercizio?: number; id_attrezzo?: number; };
 
 // === FUNZIONE PRIVATA (NON ESPORTATA) ===
 function WorkoutTrackerContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   
-  // Isolata la dipendenza passiva dai parametri URL
   const urlDayId = searchParams.get("day");
   const urlTemplateId = searchParams.get("template");
 
-  // Stato Globale Identificativo
   const [dayId, setDayId] = useState<string | null>(null);
   const [templateId, setTemplateId] = useState<string | null>(null);
 
-  // Stato Dati
   const [isLoading, setIsLoading] = useState(true);
   const [exercises, setExercises] = useState<ExerciseLog[]>([]);
   const [workoutName, setWorkoutName] = useState<string>("Allenamento Libero");
   
-  // Timer e Recupero
   const [startTime, setStartTime] = useState<number | null>(null);
   const [elapsedTimeDisplay, setElapsedTimeDisplay] = useState(0);
   const [restTotalTime, setRestTotalTime] = useState<number | null>(null); 
@@ -100,16 +100,25 @@ function WorkoutTrackerContent() {
   const [activeSet, setActiveSet] = useState<ActiveSet | null>(null);
   const [restingSet, setRestingSet] = useState<RestingSet | null>(null);
   
-  // Swipe State
   const [swipedSetId, setSwipedSetId] = useState<string | null>(null);
 
-  // Cataloghi e Sostituzione
+  // Cataloghi e Sostituzione Estesa
   const [tuttiEsercizi, setTuttiEsercizi] = useState<EsercizioBase[]>([]);
+  const [muscoli, setMuscoli] = useState<Muscolo[]>([]);
+  const [attrezzi, setAttrezzi] = useState<Attrezzo[]>([]);
+  const [relMuscoli, setRelMuscoli] = useState<RelazioneMuscolo[]>([]);
+  const [relAttrezzi, setRelAttrezzi] = useState<RelazioneAttrezzo[]>([]);
+
   const [isOptionsModalOpen, setIsOptionsModalOpen] = useState(false);
   const [isReplaceModalOpen, setIsReplaceModalOpen] = useState(false);
   const [focusedExIndex, setFocusedExIndex] = useState<number | null>(null);
   const [searchText, setSearchText] = useState("");
   const [previewExercise, setPreviewExercise] = useState<ExerciseLog | null>(null);
+
+  const [isMuscoliOpen, setIsMuscoliOpen] = useState(false);
+  const [isAttrezziOpen, setIsAttrezziOpen] = useState(false);
+  const [selectedMuscles, setSelectedMuscles] = useState<string[]>([]);
+  const [selectedEquipment, setSelectedEquipment] = useState<string | null>(null);
 
   // Storico Analitico
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
@@ -154,11 +163,31 @@ function WorkoutTrackerContent() {
       setIsLoading(true);
       const savedData = localStorage.getItem(LOCAL_STORAGE_KEY);
       
+      // Idratazione dei cataloghi per i filtri di sostituzione (Punto Critico)
+      try {
+        const { data: catData } = await supabase.from('Esercizi').select('id_esercizio, nome, gif_url').order('nome');
+        if (catData) setTuttiEsercizi(catData as EsercizioBase[]);
+
+        const { data: mData } = await supabase.from('GruppiMuscolari').select('*').order('nome');
+        if (mData) setMuscoli(mData as Muscolo[]);
+
+        const { data: aData } = await supabase.from('Attrezzi').select('*').order('nome');
+        if (aData) setAttrezzi(aData as Attrezzo[]);
+
+        let { data: relMData, error: relMErr } = await supabase.from('Esercizio_Muscolo').select('*');
+        if (relMErr) {
+            const fallback = await supabase.from('esercizio_muscolo').select('*');
+            relMData = fallback.data;
+        }
+        if (relMData) setRelMuscoli(relMData as RelazioneMuscolo[]);
+
+        const { data: relAData } = await supabase.from('Esercizio_Attrezzo').select('*');
+        if (relAData) setRelAttrezzi(relAData as RelazioneAttrezzo[]);
+      } catch (err) { console.error("Errore fetch cataloghi:", err); }
+
       if (savedData) {
         try {
           const parsed = JSON.parse(savedData);
-          
-          // Ripristino garantito: vince il localStorage, fallback sull'URL
           const currentDayId = parsed.dayId || urlDayId;
           const currentTemplateId = parsed.templateId || urlTemplateId;
           
@@ -179,14 +208,11 @@ function WorkoutTrackerContent() {
               setRestTimeDisplay(remaining > 0 ? remaining : null);
             }
             setIsLoading(false);
-            const { data: catData } = await supabase.from('Esercizi').select('id_esercizio, nome, gif_url').order('nome');
-            if (catData) setTuttiEsercizi(catData as EsercizioBase[]);
             return; 
           }
         } catch (e) { console.error(e); }
       }
 
-      // Se è un allenamento nuovo (nessun salvataggio valido precedente):
       if (!urlDayId) { setIsLoading(false); return; }
 
       setDayId(urlDayId);
@@ -239,9 +265,6 @@ function WorkoutTrackerContent() {
             })
           })));
         }
-        
-        const { data: catData } = await supabase.from('Esercizi').select('id_esercizio, nome, gif_url').order('nome');
-        if (catData) setTuttiEsercizi(catData as EsercizioBase[]);
       } catch (error) { console.error(error); } finally { setIsLoading(false); }
     }
     loadWorkout();
@@ -372,10 +395,10 @@ function WorkoutTrackerContent() {
     setExtraStartTime(null);
     setIsRestModalOpen(false);
   };
-const updateSet = (exIndex: number, setIndex: number, field: 'reps' | 'weight', value: string) => {
-    // SANIFICAZIONE: Sostituisce eventuali virgole con punti
+
+  const updateSet = (exIndex: number, setIndex: number, field: 'reps' | 'weight', value: string) => {
     const sanitizedValue = field === 'weight' ? value.replace(',', '.') : value;
-    
+
     setExercises(prev => {
       const next = [...prev];
       const newSets = [...next[exIndex].sets];
@@ -440,6 +463,38 @@ const updateSet = (exIndex: number, setIndex: number, field: 'reps' | 'weight', 
     });
   };
   
+  // === LOGICA FILTRI VETTORIALE IDENTICA A DAY/[ID] ===
+  const toggleMuscle = (id: string) => {
+    setSelectedMuscles(prev => prev.includes(id) ? prev.filter(mId => mId !== id) : [...prev, id]);
+  };
+
+  let risultatiFinali: EsercizioBase[] = [];
+  const hasSearch = searchText.trim() !== "";
+  const hasMuscles = selectedMuscles.length > 0;
+  const hasEquipment = selectedEquipment !== null;
+
+  if (hasSearch || hasMuscles || hasEquipment) {
+    let filtratiBase = tuttiEsercizi.filter(es => {
+      const esId = String(es.id_esercizio ?? es.id);
+      const matchesMuscles = !hasMuscles || selectedMuscles.every(mId => 
+        relMuscoli.some(rm => String(rm.id_esercizio ?? (rm as any).esercizio_id) === esId && String(rm.id_gruppo ?? (rm as any).gruppo_id) === mId)
+      );
+      const matchesEquipment = !hasEquipment || relAttrezzi.some(ra => 
+          String(ra.id_esercizio ?? (ra as any).esercizio_id) === esId && String(ra.id_attrezzo ?? (ra as any).attrezzo_id) === selectedEquipment
+      );
+      return matchesMuscles && matchesEquipment;
+    });
+
+    if (hasSearch) {
+      const parole = searchText.toLowerCase().trim().split(/\s+/);
+      parole.forEach(parola => {
+        const fuse = new Fuse(filtratiBase, { keys: ['nome'], threshold: 0.35, ignoreLocation: true });
+        filtratiBase = fuse.search(parola).map(r => r.item);
+      });
+    }
+    risultatiFinali = filtratiBase;
+  }
+
   const handleReplace = (nuovoEs: EsercizioBase) => {
     if (focusedExIndex === null) return;
     setExercises(prev => {
@@ -450,6 +505,10 @@ const updateSet = (exIndex: number, setIndex: number, field: 'reps' | 'weight', 
     setIsReplaceModalOpen(false);
     setFocusedExIndex(null);
     setSearchText("");
+    setSelectedMuscles([]);
+    setSelectedEquipment(null);
+    setIsMuscoliOpen(false);
+    setIsAttrezziOpen(false);
   };
 
   const clearAndRedirect = () => { localStorage.removeItem(LOCAL_STORAGE_KEY); router.push("/start-workout"); };
@@ -762,19 +821,82 @@ const updateSet = (exIndex: number, setIndex: number, field: 'reps' | 'weight', 
       )}
 
       {isReplaceModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-base border-4 border-line shadow-[12px_12px_0px_#000000] flex flex-col h-[80vh]">
-            <div className="p-4 border-b-4 border-line bg-surface flex justify-between items-center">
-              <h2 className="font-heading text-xl font-black uppercase">Sostituisci</h2>
-              <button onClick={() => { setIsReplaceModalOpen(false); setFocusedExIndex(null); }} className="w-10 h-10 bg-[#ff331f] border-2 border-line flex items-center justify-center text-white"><X size={20}/></button>
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex flex-col justify-end">
+          <div className="bg-base w-full h-[90vh] border-t-4 border-line flex flex-col shadow-[0px_-8px_0px_rgba(0,0,0,1)] dark:shadow-[0px_-8px_0px_rgba(128,76,217,1)] animate-in slide-in-from-bottom-full duration-300">
+            
+            <div className="flex justify-between items-center p-6 border-b-2 border-line shrink-0 bg-surface">
+              <h2 className="font-heading text-2xl font-black uppercase text-main tracking-tighter">Sostituisci</h2>
+              <button onClick={() => { setIsReplaceModalOpen(false); setFocusedExIndex(null); setSelectedMuscles([]); setSelectedEquipment(null); setSearchText(""); setIsMuscoliOpen(false); setIsAttrezziOpen(false); }} className="w-10 h-10 bg-base flex items-center justify-center border-2 border-line shadow-[2px_2px_0px_#000000] dark:shadow-[2px_2px_0px_#804CD9] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all">
+                <X size={20} strokeWidth={3} className="text-main"/>
+              </button>
             </div>
-            <div className="p-4 border-b-2 border-line bg-base"><input autoFocus type="text" placeholder="Cerca nuovo esercizio..." value={searchText} onChange={e => setSearchText(e.target.value)} className="w-full p-4 bg-surface border-2 border-line font-bold uppercase outline-none" /></div>
-            <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
-              {searchText.trim() !== "" ? (
-                new Fuse(tuttiEsercizi, { keys: ['nome'], threshold: 0.35 }).search(searchText).map(r => r.item).map(es => (
-                  <button key={es.id_esercizio} onClick={() => handleReplace(es)} className="w-full p-4 bg-surface border-2 border-line text-left font-black uppercase hover:bg-brand transition-colors flex justify-between items-center">{es.nome} <Plus size={20}/></button>
-                ))
-              ) : null}
+
+            <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
+              <div className="relative shrink-0">
+                <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-muted" size={20} strokeWidth={3} />
+                <input 
+                  type="text" 
+                  placeholder="Cerca esercizio..." 
+                  value={searchText} 
+                  onChange={(e) => setSearchText(e.target.value)} 
+                  className="w-full bg-surface pl-14 pr-5 py-5 border-2 border-line text-main font-bold uppercase tracking-wide outline-none focus:shadow-[4px_4px_0px_#000000] dark:focus:shadow-[4px_4px_0px_#804CD9] transition-all placeholder:text-muted/50"
+                />
+              </div>
+
+              <div className="flex flex-col gap-4 border-b-2 border-line pb-6 shrink-0">
+                <div>
+                  <button onClick={() => setIsMuscoliOpen(!isMuscoliOpen)} className="flex items-center gap-2 w-full text-left py-2 outline-none">
+                    {isMuscoliOpen ? <ChevronDown size={20} strokeWidth={3} className="text-brand" /> : <ChevronRight size={20} strokeWidth={3} className="text-main" />}
+                    <span className={`text-sm uppercase tracking-widest font-black ${selectedMuscles.length > 0 ? "text-brand" : "text-main"}`}>
+                      Muscoli {selectedMuscles.length > 0 && `(${selectedMuscles.length})`}
+                    </span>
+                  </button>
+                  {isMuscoliOpen && (
+                    <div className="flex flex-wrap gap-2 mt-4 mb-2">
+                      {muscoli.map(m => {
+                        const mId = String(m.id_gruppo ?? m.id);
+                        return (
+                          <button key={`btn-muscolo-${mId}`} onClick={() => toggleMuscle(mId)} className={`px-4 py-2 border-2 border-line text-xs font-black uppercase tracking-widest transition-all ${selectedMuscles.includes(mId) ? 'bg-brand text-base shadow-[2px_2px_0px_#000000] dark:shadow-[2px_2px_0px_#804CD9] translate-x-[-1px] translate-y-[-1px]' : 'bg-surface text-main hover:bg-base'}`}>
+                            {m.nome}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <button onClick={() => setIsAttrezziOpen(!isAttrezziOpen)} className="flex items-center gap-2 w-full text-left py-2 outline-none">
+                    {isAttrezziOpen ? <ChevronDown size={20} strokeWidth={3} className="text-brand" /> : <ChevronRight size={20} strokeWidth={3} className="text-main" />}
+                    <span className={`text-sm uppercase tracking-widest font-black ${selectedEquipment ? "text-brand" : "text-main"}`}>
+                      Attrezzi {selectedEquipment && "(1)"}
+                    </span>
+                  </button>
+                  {isAttrezziOpen && (
+                    <div className="flex flex-wrap gap-2 mt-4 mb-2">
+                      {attrezzi.map(a => {
+                        const aId = String(a.id_attrezzo ?? a.id);
+                        return (
+                          <button key={`btn-attrezzo-${aId}`} onClick={() => setSelectedEquipment(selectedEquipment === aId ? null : aId)} className={`px-4 py-2 border-2 border-line text-xs font-black uppercase tracking-widest transition-all ${selectedEquipment === aId ? 'bg-brand text-base shadow-[2px_2px_0px_#000000] dark:shadow-[2px_2px_0px_#804CD9] translate-x-[-1px] translate-y-[-1px]' : 'bg-surface text-main hover:bg-base'}`}>
+                            {a.nome}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 pb-6">
+                {risultatiFinali.map(es => (
+                  <button key={`result-${es.id_esercizio}`} onClick={() => handleReplace(es)} className="w-full p-4 bg-surface border-2 border-line text-left font-black uppercase hover:bg-brand transition-colors flex justify-between items-center">
+                    {es.nome} <Plus size={20}/>
+                  </button>
+                ))}
+                {risultatiFinali.length === 0 && (searchText || selectedMuscles.length > 0 || selectedEquipment) && (
+                  <p className="text-muted text-center mt-10 text-sm font-bold uppercase tracking-widest">Nessun esercizio corrisponde.</p>
+                )}
+              </div>
             </div>
           </div>
         </div>

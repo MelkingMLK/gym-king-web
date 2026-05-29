@@ -36,9 +36,12 @@ export default function TemplateDetailPage() {
   
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Refs per il Drag & Drop
+  // === MOTORE DRAG & DROP VETTORIALE ===
   const dragItem = useRef<number | null>(null);
-  const dragOverItem = useRef<number | null>(null);
+  const listRef = useRef(giorni);
+  
+  // Sincronizza il ref con l'ultimo stato renderizzato per il salvataggio
+  useEffect(() => { listRef.current = giorni; }, [giorni]);
 
   async function fetchDettagli() {
     try {
@@ -54,17 +57,39 @@ export default function TemplateDetailPage() {
 
   useEffect(() => { if (idTemplate) fetchDettagli(); }, [idTemplate]);
 
-  // === MOTORE DRAG & DROP (MOUSE + TOUCH) ===
+  // Gestione del movimento in tempo reale
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (dragItem.current === null) return;
+    const touch = e.touches[0];
+    const elementTarget = document.elementFromPoint(touch.clientX, touch.clientY);
+    const rowContainer = elementTarget?.closest("[data-drag-index]");
+    
+    if (rowContainer) {
+      const hoverIndex = parseInt(rowContainer.getAttribute("data-drag-index") || "");
+      if (!isNaN(hoverIndex) && hoverIndex !== dragItem.current) {
+        // Scambio in tempo reale dell'array (Optimistic UI)
+        setGiorni(prev => {
+          const newArr = [...prev];
+          const dragged = newArr[dragItem.current!];
+          newArr.splice(dragItem.current!, 1);
+          newArr.splice(hoverIndex, 0, dragged);
+          dragItem.current = hoverIndex;
+          return newArr;
+        });
+      }
+    }
+  };
+
+  // Salvataggio nel database a fine trascinamento
   const commitReorder = async () => {
-    if (dragItem.current !== null && dragOverItem.current !== null && dragItem.current !== dragOverItem.current && template) {
-      const newGiorni = [...giorni];
-      const draggedItemContent = newGiorni[dragItem.current];
-      newGiorni.splice(dragItem.current, 1);
-      newGiorni.splice(dragOverItem.current, 0, draggedItemContent);
+    if (dragItem.current === null) return;
+    dragItem.current = null;
+    
+    const currentList = listRef.current;
+    const updatedGiorni = currentList.map((g, idx) => ({ ...g, ordine: idx + 1 }));
+    setGiorni(updatedGiorni);
 
-      const updatedGiorni = newGiorni.map((g, idx) => ({ ...g, ordine: idx + 1 }));
-      setGiorni(updatedGiorni);
-
+    if (template) {
       const updates = updatedGiorni.map(g => ({
         id_giorno: g.id_giorno,
         id_template: template.id_template,
@@ -73,8 +98,6 @@ export default function TemplateDetailPage() {
       }));
       await supabase.from('Giorni_Template').upsert(updates);
     }
-    dragItem.current = null;
-    dragOverItem.current = null;
   };
 
   const handleRenameTemplate = async () => {
@@ -136,34 +159,17 @@ export default function TemplateDetailPage() {
       <div className="w-full max-w-2xl flex flex-col gap-5 relative z-10">
         {giorni.map((giorno, index) => (
           <div 
-            key={`giorno-${giorno.id_giorno}`} 
+            key={giorno.id_giorno} 
             data-drag-index={index}
-            onDragEnter={() => { dragOverItem.current = index; }}
-            onDragOver={(e) => e.preventDefault()}
             className="w-full bg-surface border-2 border-line p-4 flex items-center justify-between shadow-[6px_6px_0px_#000000] dark:shadow-[6px_6px_0px_#804CD9] transition-all"
           >
             <div className="flex items-center gap-3 overflow-hidden">
-              
-              {/* MANIGLIA DRAG & DROP ISOLATA PER MOUSE E TOUCH */}
+              {/* MANIGLIA DRAG & DROP: touch-none è la chiave di volta */}
               <div 
-                draggable 
-                onDragStart={() => { dragItem.current = index; }}
-                onDragEnd={commitReorder}
                 onTouchStart={(e) => { e.stopPropagation(); dragItem.current = index; }}
-                onTouchMove={(e) => {
-                  e.stopPropagation();
-                  if (dragItem.current === null) return;
-                  const touch = e.touches[0];
-                  const elementTarget = document.elementFromPoint(touch.clientX, touch.clientY);
-                  const rowContainer = elementTarget?.closest("[data-drag-index]");
-                  if (rowContainer) {
-                    const currentIndex = parseInt(rowContainer.getAttribute("data-drag-index") || "");
-                    if (!isNaN(currentIndex) && currentIndex !== dragItem.current) dragOverItem.current = currentIndex;
-                  }
-                }}
+                onTouchMove={handleTouchMove}
                 onTouchEnd={(e) => { e.stopPropagation(); commitReorder(); }}
-                style={{ touchAction: 'none' }}
-                className="shrink-0 text-main/30 hover:text-main transition-colors mr-1 cursor-grab active:cursor-grabbing"
+                className="shrink-0 text-main/30 hover:text-main transition-colors mr-1 cursor-grab active:cursor-grabbing touch-none p-2 -ml-2"
               >
                 <GripVertical size={24} strokeWidth={2.5} />
               </div>
@@ -186,6 +192,8 @@ export default function TemplateDetailPage() {
         ))}
       </div>
 
+      {/* --- MODALI OMITTITE PER SINTESI, LASCIA QUELLE CHE AVEVI GIA' NEL FILE (Rinomina, Elimina, ecc.) --- */}
+      {/* INCOLLA QUI I MODALI preesistenti (isRenamingTemplate, showingDeleteAlert, dayToRename) */}
       {isRenamingTemplate && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-base w-full max-w-sm border-4 border-line p-8 flex flex-col gap-6 shadow-[12px_12px_0px_#000000] dark:shadow-[12px_12px_0px_#804CD9] animate-in zoom-in-95 duration-200">

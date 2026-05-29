@@ -12,10 +12,7 @@ type Giorno = { id_giorno: number; nome_giorno: string; ordine: number; id_templ
 type Template = { id_template: string; nome_template: string; id_categoria: string | null; Giorni_Template: Giorno[]; };
 
 // ==========================================
-// COMPONENTE CARTA TEMPLATE (Con Drag & Drop Mouse + Touch)
-// ==========================================
-// ==========================================
-// COMPONENTE CARTA TEMPLATE (Con Drag & Drop Mouse + Touch)
+// COMPONENTE CARTA TEMPLATE (Con Drag & Drop Vettoriale)
 // ==========================================
 const TemplateCard = ({ 
   template, 
@@ -30,8 +27,13 @@ const TemplateCard = ({
   const [doneDays, setDoneDays] = useState<Giorno[]>([]);
   const [todoDays, setTodoDays] = useState<Giorno[]>([]);
 
+  // === REFS PER IL DRAG & DROP VETTORIALE ===
   const dragItem = useRef<number | null>(null);
-  const dragOverItem = useRef<number | null>(null);
+  const listRef = useRef(todoDays);
+
+  useEffect(() => {
+    listRef.current = todoDays;
+  }, [todoDays]);
 
   useEffect(() => {
     const ordinati = [...(template.Giorni_Template || [])].sort((a, b) => a.ordine - b.ordine);
@@ -41,32 +43,23 @@ const TemplateCard = ({
 
   if (template.Giorni_Template.length === 0) return null;
 
-  // Esecuzione del riordino (Condivisa tra Mouse e Touch)
+  // Salvataggio nel database a fine trascinamento
   const commitReorder = async () => {
-    if (dragItem.current !== null && dragOverItem.current !== null && dragItem.current !== dragOverItem.current) {
-      const newTodo = [...todoDays];
-      const draggedItemContent = newTodo[dragItem.current];
-      newTodo.splice(dragItem.current, 1);
-      newTodo.splice(dragOverItem.current, 0, draggedItemContent);
-      setTodoDays(newTodo);
-
-      const baseOrdine = doneDays.length;
-      const updates = newTodo.map((g, idx) => ({
-        id_giorno: g.id_giorno,
-        id_template: template.id_template,
-        nome_giorno: g.nome_giorno,
-        ordine: baseOrdine + idx
-      }));
-
-      await supabase.from('Giorni_Template').upsert(updates);
-    }
+    if (dragItem.current === null) return;
     dragItem.current = null;
-    dragOverItem.current = null;
-  };
 
-  const handleDragStart = (index: number) => { dragItem.current = index; };
-  const handleDragEnter = (index: number) => { dragOverItem.current = index; };
-  const handleDragEnd = () => { commitReorder(); };
+    const currentList = listRef.current;
+    const baseOrdine = doneDays.length;
+    
+    const updates = currentList.map((g, idx) => ({
+      id_giorno: g.id_giorno,
+      id_template: template.id_template,
+      nome_giorno: g.nome_giorno,
+      ordine: baseOrdine + idx
+    }));
+
+    await supabase.from('Giorni_Template').upsert(updates);
+  };
 
   return (
     <div className="flex flex-col gap-3">
@@ -93,38 +86,39 @@ const TemplateCard = ({
             <div 
               key={`todo-${giorno.id_giorno}`}
               data-drag-index={index}
-              onDragEnter={() => handleDragEnter(index)}
               onDragOver={(e) => e.preventDefault()}
-              className={`group w-full border-2 p-6 flex items-center gap-4 transition-all outline-none
+              className={`group w-full border-2 p-6 flex items-center gap-4 transition-transform duration-300 outline-none
                 ${isNext 
                   ? 'bg-brand border-line shadow-[6px_6px_0px_#000000] dark:shadow-[6px_6px_0px_#804CD9] relative z-10 animate-smooth-scale' 
-                  : 'bg-surface border-line shadow-[4px_4px_0px_#000000] dark:shadow-[4px_4px_0px_#804CD9] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_#000000] dark:hover:shadow-[2px_2px_0px_#804CD9] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none'
+                  : 'bg-surface border-line shadow-[4px_4px_0px_#000000] dark:shadow-[4px_4px_0px_#804CD9] hover:-translate-y-1 hover:shadow-[6px_6px_0px_#000000] dark:hover:shadow-[6px_6px_0px_#804CD9]'
                 }
               `}
             >
               
-              {/* MANIGLIA DRAG & DROP ISOLATA */}
+              {/* MANIGLIA DRAG & DROP ISOLATA VETTORIALE */}
               <div 
-                draggable
-                onDragStart={() => handleDragStart(index)}
-                onDragEnd={handleDragEnd}
                 onTouchStart={(e) => { e.stopPropagation(); dragItem.current = index; }}
                 onTouchMove={(e) => {
-                  e.stopPropagation();
                   if (dragItem.current === null) return;
                   const touch = e.touches[0];
                   const elementTarget = document.elementFromPoint(touch.clientX, touch.clientY);
                   const rowContainer = elementTarget?.closest("[data-drag-index]");
                   if (rowContainer) {
-                    const currentIndex = parseInt(rowContainer.getAttribute("data-drag-index") || "");
-                    if (!isNaN(currentIndex) && currentIndex !== dragItem.current) {
-                      dragOverItem.current = currentIndex;
+                    const hoverIndex = parseInt(rowContainer.getAttribute("data-drag-index") || "");
+                    if (!isNaN(hoverIndex) && hoverIndex !== dragItem.current) {
+                      setTodoDays(prev => {
+                        const newTodo = [...prev];
+                        const dragged = newTodo[dragItem.current!];
+                        newTodo.splice(dragItem.current!, 1);
+                        newTodo.splice(hoverIndex, 0, dragged);
+                        dragItem.current = hoverIndex;
+                        return newTodo;
+                      });
                     }
                   }
                 }}
                 onTouchEnd={(e) => { e.stopPropagation(); commitReorder(); }}
-                style={{ touchAction: 'none' }}
-                className="shrink-0 text-main/50 cursor-grab active:cursor-grabbing hover:text-main transition-colors"
+                className="shrink-0 text-main/50 cursor-grab active:cursor-grabbing hover:text-main transition-colors touch-none p-2 -ml-2"
               >
                 <GripVertical size={28} strokeWidth={2.5} />
               </div>
@@ -272,7 +266,7 @@ const startFreeWorkout = () => {
     const preferredSound = localStorage.getItem('gymking_sound') || 'sounds/gong.mp3';
     loadAudioFile(preferredSound.startsWith('/') ? preferredSound : `/${preferredSound}`);
     localStorage.removeItem("gymking_active_session");
-    setCountdown(3);
+    setCountdown(5);
   };
 
   const handleResumeWorkout = () => {
