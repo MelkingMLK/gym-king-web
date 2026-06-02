@@ -2,23 +2,27 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ChevronLeft, SlidersHorizontal, Plus, Star, Check } from "lucide-react";
-import { supabase } from "../../lib/supabase";
+import { ChevronLeft, SlidersHorizontal, Plus, Star, Check, Globe, Lock, DownloadCloud } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
-// === SPINNER REATTIVO PURO TAILWIND (PUNTO F) ===
 const CleanSpinner = ({ size = 24 }: { size?: number }) => {
   const strokeWidth = Math.max(2, Math.round(size * 0.1));
   return (
     <div className="relative flex items-center justify-center animate-spin" style={{ width: size, height: size }}>
-      {/* Traccia di fondo */}
       <div className="absolute inset-0 rounded-full border-main opacity-10" style={{ borderWidth: strokeWidth }} />
-      {/* Arco di caricamento agganciato al colore del brand */}
       <div className="absolute inset-0 rounded-full border-transparent border-t-brand" style={{ borderWidth: strokeWidth }} />
     </div>
   );
 };
 
-type Template = { id_template: string; nome_template: string; is_favorite: boolean; id_categoria: string | null; };
+type Template = { 
+  id_template: string; 
+  nome_template: string; 
+  is_favorite: boolean; 
+  id_categoria: string | null; 
+  is_public: boolean;
+  cloned_from: string | null;
+};
 type Categoria = { id_categoria: string; nome_categoria: string; num_giorni: number; };
 
 export default function CreateTemplatePage() {
@@ -41,13 +45,27 @@ export default function CreateTemplatePage() {
   async function fetchData() {
     setIsLoading(true);
     try {
-      const { data: tData } = await supabase.from('Template_Schede').select('*').order('nome_template');
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Utente non autenticato");
+
+      const { data: tData, error: tErr } = await supabase
+        .from('Template_Schede')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('nome_template');
+      
+      if (tErr) throw tErr;
       if (tData) setTemplates(tData);
 
-      const { data: cData } = await supabase.from('Categorie').select('*').order('nome_categoria');
+      const { data: cData, error: cErr } = await supabase
+        .from('Categorie')
+        .select('*')
+        .order('nome_categoria');
+        
+      if (cErr) throw cErr;
       if (cData) setCategorie(cData);
     } catch (error) {
-      console.error("Errore:", error);
+      console.error("Errore critico in fetchData:", error);
     } finally {
       setIsLoading(false);
     }
@@ -58,6 +76,8 @@ export default function CreateTemplatePage() {
   const toggleFavorite = async (e: React.MouseEvent, template: Template) => {
     e.preventDefault();
     const wasFavorite = template.is_favorite;
+    
+    // Optimistic UI update
     const newTemplates = templates.map(t => ({
       ...t,
       is_favorite: t.id_template === template.id_template ? !wasFavorite : false
@@ -65,13 +85,17 @@ export default function CreateTemplatePage() {
     setTemplates(newTemplates);
 
     try {
-      await supabase.from('Template_Schede').update({ is_favorite: false }).not('id_template', 'is', null);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Utente non autenticato");
+
+      await supabase.from('Template_Schede').update({ is_favorite: false }).eq('user_id', user.id);
+      
       if (!wasFavorite) {
         await supabase.from('Template_Schede').update({ is_favorite: true }).eq('id_template', template.id_template);
       }
     } catch (error) {
-      console.error(error);
-      fetchData();
+      console.error("Errore aggiornamento preferiti:", error);
+      fetchData(); // Rollback in caso di errore
     }
   };
 
@@ -99,6 +123,9 @@ export default function CreateTemplatePage() {
     
     setIsSaving(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Utente non autenticato");
+
       let finalCategoryId = newTemplateCategoryId || null;
 
       if (isCreatingNewCategory && newCategoryName.trim()) {
@@ -117,7 +144,9 @@ export default function CreateTemplatePage() {
         .insert([{ 
           nome_template: newTemplateName,
           id_categoria: finalCategoryId,
-          is_favorite: false 
+          is_favorite: false,
+          is_public: false,
+          user_id: user.id
         }])
         .select().single();
 
@@ -135,7 +164,7 @@ export default function CreateTemplatePage() {
       resetModal();
       await fetchData();
     } catch (error) { 
-      console.error(error); 
+      console.error("Errore creazione template:", error); 
     } finally { 
       setIsSaving(false); 
     }
@@ -217,16 +246,34 @@ export default function CreateTemplatePage() {
                       <img src="/icona.png" alt="Icon" className="w-14 h-14 object-contain scale-125" />
                     </div>
                     
-                    <div className="flex-1 flex flex-col overflow-hidden justify-center gap-1">
+                    <div className="flex-1 flex flex-col overflow-hidden justify-center gap-1.5">
                       <span className="font-heading text-xl text-main font-black uppercase truncate tracking-tight">{template.nome_template}</span>
-                      {cat ? 
-                        <span className="text-xs uppercase tracking-widest text-brand font-bold">{cat.nome_categoria}</span> 
-                        : 
-                        <span className="text-xs uppercase tracking-widest text-muted font-bold">Custom</span>
-                      }
+                      
+                      {/* CONTAINER TAGS */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {cat ? 
+                          <span className="text-[10px] uppercase tracking-widest text-brand font-bold border border-line px-1.5 py-0.5 bg-surface">{cat.nome_categoria}</span> 
+                          : 
+                          <span className="text-[10px] uppercase tracking-widest text-muted font-bold border border-line px-1.5 py-0.5 bg-surface">Custom</span>
+                        }
+
+                        {template.cloned_from ? (
+                           <span className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest bg-[#3366ff] text-white px-1.5 py-0.5 border border-[#1a1a1a] shadow-[1px_1px_0px_#000000]">
+                              <DownloadCloud size={10} strokeWidth={3}/> Scaricato
+                           </span>
+                        ) : template.is_public ? (
+                           <span className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest bg-brand text-base px-1.5 py-0.5 border border-[#1a1a1a] shadow-[1px_1px_0px_#000000]">
+                              <Globe size={10} strokeWidth={3}/> Pubblico
+                           </span>
+                        ) : (
+                           <span className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest bg-surface text-muted px-1.5 py-0.5 border border-line shadow-[1px_1px_0px_rgba(0,0,0,0.1)]">
+                              <Lock size={10} strokeWidth={3}/> Privato
+                           </span>
+                        )}
+                      </div>
                     </div>
                     
-                    <button className="p-3 shrink-0 transition-transform hover:scale-125" onClick={(e) => toggleFavorite(e, template)}>
+                    <button className="p-3 shrink-0 transition-transform hover:scale-125 outline-none" onClick={(e) => toggleFavorite(e, template)}>
                       <Star size={26} strokeWidth={2.5} className={template.is_favorite ? "fill-yellow-400 text-yellow-400" : "text-muted hover:text-main"} />
                     </button>
                   </div>

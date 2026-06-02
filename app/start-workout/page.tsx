@@ -84,16 +84,16 @@ const TemplateCard = ({
           const isNext = index === 0; 
           return (
             <div 
-              key={`todo-${giorno.id_giorno}`}
-              data-drag-index={index}
-              onDragOver={(e) => e.preventDefault()}
-              className={`group w-full border-2 p-6 flex items-center gap-4 transition-transform duration-300 outline-none
-                ${isNext 
-                  ? 'bg-brand border-line shadow-[6px_6px_0px_#000000] dark:shadow-[6px_6px_0px_#804CD9] relative z-10 animate-smooth-scale' 
-                  : 'bg-surface border-line shadow-[4px_4px_0px_#000000] dark:shadow-[4px_4px_0px_#804CD9] hover:-translate-y-1 hover:shadow-[6px_6px_0px_#000000] dark:hover:shadow-[6px_6px_0px_#804CD9]'
-                }
-              `}
-            >
+  key={`todo-${giorno.id_giorno}`}
+  data-drag-index={index}
+  onDragOver={(e) => e.preventDefault()}
+  className={`group w-full border-2 p-6 flex items-center gap-4 transition-transform duration-300 outline-none select-none
+    ${isNext 
+      ? 'bg-brand border-line shadow-[6px_6px_0px_#000000] dark:shadow-[6px_6px_0px_#804CD9] relative z-10 animate-smooth-scale' 
+      : 'bg-surface border-line shadow-[4px_4px_0px_#000000] dark:shadow-[4px_4px_0px_#804CD9] hover:-translate-y-1 hover:shadow-[6px_6px_0px_#000000] dark:hover:shadow-[6px_6px_0px_#804CD9]'
+    }
+  `}
+>
               
               {/* MANIGLIA DRAG & DROP ISOLATA VETTORIALE */}
               <div 

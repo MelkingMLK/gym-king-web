@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { ChevronLeft, Trophy, BarChart3, ListOrdered, Zap, Coffee, Trash2, Clock, Ghost, Edit3, X, CheckCircle2 } from "lucide-react";
+import { ChevronLeft, Trophy, BarChart3, ListOrdered, Zap, Coffee, Trash2, Clock, Ghost, Edit3, X, CheckCircle2, TrendingUp } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 const CleanSpinner = ({ size = 24 }: { size?: number }) => {
@@ -25,7 +25,26 @@ type SetData = {
   wasteDurationSec: number; 
   completedAt: number; 
 };
-type ExerciseLog = { id_esercizio: number; nome: string; expectedSets: number; sets: SetData[]; };
+
+type ExerciseLog = { 
+  ordine_esercizio: number;
+  id_esercizio: number; 
+  nome: string; 
+  unita_misura: string;
+  expectedSets: number; 
+  sets: SetData[]; 
+};
+
+// === ICONA SVG COPPA BRUTALISTA (Sostituisce Emoji) ===
+const SvgTrophy = ({ size = 10 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+    <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
+    <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
+    <path d="M4 22h16" />
+    <path d="M10 14.66V17c0 .55-.45 1-1 1H4v2h16v-2h-5c-.55 0-1-.45-1-1v-2.34" />
+    <path d="M12 2a6 6 0 0 1 6 6v5a6 6 0 0 1-6 6 6 6 0 0 1-6-6V8a6 6 0 0 1 6-6z" />
+  </svg>
+);
 
 // === GRAFICO MACRO A CIAMBELLA ===
 const MacroDonutChart = ({ exercises, totalSessionTime }: { exercises: ExerciseLog[], totalSessionTime: number }) => {
@@ -229,6 +248,26 @@ const NightingaleRoseChart = ({ exercises }: { exercises: ExerciseLog[] }) => {
           })}
         </svg>
       </div>
+
+      {/* LEGENDA DEL GRAFICO A ROSA (NIGHTINGALE) */}
+      <div className="flex flex-col w-full gap-2 mt-6 text-[10px] font-black uppercase tracking-tighter bg-base p-4 border-2 border-line">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#ccff00] border-2 border-line shrink-0"></div>Sforzo (TUT)</div>
+          <span className="text-muted font-bold text-[9px]">Centro</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#ffde59] border-2 border-line shrink-0"></div>Recupero Effettivo</div>
+          <span className="text-muted font-bold text-[9px]">Strato 2</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#ff331f] border-2 border-line shrink-0"></div>Sforamento Pause</div>
+          <span className="text-muted font-bold text-[9px]">Strato 3</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#94a3b8] border-2 border-line shrink-0"></div>Stima Serie Mancanti</div>
+          <span className="text-muted font-bold text-[9px]">Esterno</span>
+        </div>
+      </div>
     </div>
   );
 };
@@ -249,6 +288,11 @@ export default function SessionDetailPage() {
   const [chartPage, setChartPage] = useState<number>(0);
   const [touchStart, setTouchStart] = useState<number>(0);
 
+  // Stati per Metriche Avanzate
+  const [currentVolume, setCurrentVolume] = useState<number>(0);
+  const [volumeDeltaPct, setVolumeDeltaPct] = useState<number | null>(null);
+  const [setPRs, setSetPRs] = useState<Record<string, string[]>>({});
+
   // Stati per la Modale Bottom Sheet di Modifica
   const [editingExIndex, setEditingExIndex] = useState<number | null>(null);
   const [localEditedSets, setLocalEditedSets] = useState<SetData[]>([]);
@@ -257,6 +301,7 @@ export default function SessionDetailPage() {
   const fetchSessionData = useCallback(async () => {
     setIsLoading(true);
     try {
+      // 1. Fetch Sessione
       const { data: sessionData, error: sessionError } = await supabase
         .from('Storico_Allenamenti')
         .select('nome_allenamento, inizio_ts, durata_totale_sec, id_giorno')
@@ -287,10 +332,10 @@ export default function SessionDetailPage() {
          }
       }
 
-      // RIMOZIONE DELL'ID INESISTENTE: Usiamo le chiavi composte
+      // 2. Fetch Serie della Sessione
       const { data: seriesData, error: seriesError } = await supabase
         .from('Storico_Serie')
-        .select('id_esercizio, ordine_esercizio, ordine_serie, reps, weight, work_duration_sec, actual_rest_sec, waste_duration_sec, completata_il, Esercizi(nome)')
+        .select('id_esercizio, ordine_esercizio, ordine_serie, reps, weight, unita_misura, work_duration_sec, actual_rest_sec, waste_duration_sec, completata_il, Esercizi(nome)')
         .eq('id_sessione', sessionId)
         .order('ordine_esercizio')
         .order('ordine_serie');
@@ -298,17 +343,24 @@ export default function SessionDetailPage() {
       if (seriesError) throw seriesError;
 
       const exerciseMap = new Map<number, ExerciseLog>();
+      let sessionVolume = 0;
 
       seriesData.forEach((row: any) => {
         if (!exerciseMap.has(row.ordine_esercizio)) {
           exerciseMap.set(row.ordine_esercizio, {
+            ordine_esercizio: row.ordine_esercizio,
             id_esercizio: row.id_esercizio,
             nome: row.Esercizi?.nome || 'Esercizio Sconosciuto',
+            unita_misura: row.unita_misura || 'KG',
             expectedSets: expectedSetsMap.get(row.id_esercizio) || 4,
             sets: []
           });
         }
         
+        const w = parseFloat(row.weight) || 0;
+        const r = parseInt(row.reps) || 0;
+        sessionVolume += (w * r);
+
         exerciseMap.get(row.ordine_esercizio)!.sets.push({
           ordine_serie: row.ordine_serie,
           reps: row.reps,
@@ -322,6 +374,86 @@ export default function SessionDetailPage() {
       });
 
       setExercises(Array.from(exerciseMap.values()));
+      setCurrentVolume(sessionVolume);
+
+      // 3. Analisi Delta Volume (Retroattivo)
+      if (sessionData.id_giorno) {
+        const { data: previousSession } = await supabase
+          .from('Storico_Allenamenti')
+          .select('id_sessione, Storico_Serie(weight, reps)')
+          .eq('id_giorno', sessionData.id_giorno)
+          .lt('inizio_ts', sessionData.inizio_ts) // Cerca strettamente *prima* di questa sessione
+          .order('inizio_ts', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (previousSession && previousSession.Storico_Serie) {
+          const prevVol = previousSession.Storico_Serie.reduce((acc: number, s: any) => acc + ((parseFloat(s.weight)||0) * (parseInt(s.reps)||0)), 0);
+          if (prevVol > 0) {
+            setVolumeDeltaPct(Math.round(((sessionVolume - prevVol) / prevVol) * 100));
+          }
+        }
+      }
+
+      // 4. Analisi PR (Retroattivo)
+      const uniqueExIds = Array.from(new Set(seriesData.map((r: any) => r.id_esercizio)));
+      if (uniqueExIds.length > 0) {
+        // Scarica lo storico *precedente* a questa sessione per stabilire la baseline
+        const { data: pastHistory } = await supabase
+          .from('Storico_Serie')
+          .select('id_esercizio, weight, reps, Storico_Allenamenti!inner(inizio_ts)')
+          .in('id_esercizio', uniqueExIds)
+          .lt('Storico_Allenamenti.inizio_ts', sessionData.inizio_ts);
+
+        const baselines: Record<number, { maxW: number, max1RM: number, maxRepsByW: Record<number, number> }> = {};
+        
+        pastHistory?.forEach(row => {
+          const w = parseFloat(row.weight) || 0;
+          const r = parseInt(row.reps) || 0;
+          const id = row.id_esercizio;
+          const e1rm = w * (1 + r / 30);
+          
+          if (!baselines[id]) baselines[id] = { maxW: 0, max1RM: 0, maxRepsByW: {} };
+          if (w > baselines[id].maxW) baselines[id].maxW = w;
+          if (e1rm > baselines[id].max1RM) baselines[id].max1RM = e1rm;
+          if (r > (baselines[id].maxRepsByW[w] || 0)) baselines[id].maxRepsByW[w] = r;
+        });
+
+        // Valuta le serie di *questa* sessione
+        const newPrs: Record<string, string[]> = {};
+        seriesData.forEach((row: any) => {
+          const w = parseFloat(row.weight) || 0;
+          const r = parseInt(row.reps) || 0;
+          const id = row.id_esercizio;
+          if (w === 0 || r === 0) return;
+
+          if (!baselines[id]) baselines[id] = { maxW: 0, max1RM: 0, maxRepsByW: {} };
+          
+          const prList: string[] = [];
+          const e1rm = w * (1 + r / 30);
+          let isNewMaxW = false;
+
+          const hasHistory = baselines[id].maxW > 0 || baselines[id].max1RM > 0;
+
+          if (hasHistory) {
+            if (w > baselines[id].maxW) { prList.push("Max KG"); isNewMaxW = true; }
+            if (e1rm > baselines[id].max1RM) { prList.push("New 1RM"); }
+            if (r > (baselines[id].maxRepsByW[w] || 0) && !isNewMaxW) { prList.push("Max Reps"); }
+          }
+
+          // Aggiorna la baseline per le serie successive
+          if (w > baselines[id].maxW) baselines[id].maxW = w;
+          if (e1rm > baselines[id].max1RM) baselines[id].max1RM = e1rm;
+          if (r > (baselines[id].maxRepsByW[w] || 0)) baselines[id].maxRepsByW[w] = r;
+
+          if (prList.length > 0) {
+            // Genera l'ID univoco per associare la medaglia al render
+            const setId = `${row.ordine_esercizio}-${row.ordine_serie}`;
+            newPrs[setId] = prList;
+          }
+        });
+        setSetPRs(newPrs);
+      }
 
     } catch (error: any) {
       console.error("Errore recupero sessione:", error.message || error);
@@ -344,7 +476,6 @@ export default function SessionDetailPage() {
 
   const openEditModal = (exIndex: number) => {
     setEditingExIndex(exIndex);
-    // Cloniamo i set per evitare mutazioni accidentali sullo stato globale prima del salvataggio
     setLocalEditedSets(JSON.parse(JSON.stringify(exercises[exIndex].sets)));
   };
 
@@ -363,7 +494,6 @@ export default function SessionDetailPage() {
     try {
       const exToUpdate = exercises[editingExIndex];
       const updates = localEditedSets.map(set => {
-        // Mutazione mirata utilizzando le chiavi composte
         return supabase.from('Storico_Serie')
           .update({ weight: set.weight, reps: set.reps })
           .eq('id_sessione', sessionId)
@@ -373,13 +503,8 @@ export default function SessionDetailPage() {
       
       await Promise.all(updates);
       
-      // Aggiorniamo la UI locale
-      setExercises(prev => {
-        const next = [...prev];
-        next[editingExIndex].sets = [...localEditedSets];
-        return next;
-      });
-      
+      // Ricarichiamo integralmente i dati per forzare il ricalcolo di PR e Volume Delta
+      await fetchSessionData();
       setEditingExIndex(null);
     } catch (err: any) {
       console.error(err);
@@ -425,14 +550,42 @@ export default function SessionDetailPage() {
         {activeTab === "riepilogo" ? (
           <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4">
             
-            <div className="bg-surface border-4 border-line p-4 shadow-[6px_6px_0px_#000000] flex justify-between items-center text-main">
-              <div className="flex items-center gap-2">
-                <Clock className="text-brand" size={24} strokeWidth={3} />
-                <span className="font-heading text-lg font-black uppercase tracking-tight leading-none pt-1">Tempo<br/>Totale</span>
+            {/* CONTAINER METRICHE (TEMPO E VOLUME DELTA) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-surface border-4 border-line p-4 shadow-[6px_6px_0px_#000000] flex justify-between items-center text-main">
+                <div className="flex items-center gap-2">
+                  <Clock className="text-brand" size={24} strokeWidth={3} />
+                  <span className="font-heading text-lg font-black uppercase tracking-tight leading-none pt-1">Tempo<br/>Totale</span>
+                </div>
+                <span className="font-mono text-xl font-black bg-brand text-base border-2 border-line px-4 py-2 shadow-[2px_2px_0px_#000000]">
+                  {formatTime(totalTime)}
+                </span>
               </div>
-              <span className="font-mono text-xl font-black bg-brand text-base border-2 border-line px-4 py-2 shadow-[2px_2px_0px_#000000]">
-                {formatTime(totalTime)}
-              </span>
+              
+              <div className="bg-surface border-4 border-line p-4 shadow-[6px_6px_0px_#000000] flex justify-between items-center text-main relative overflow-hidden">
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="text-brand" size={24} strokeWidth={3} />
+                  <span className="font-heading text-lg font-black uppercase tracking-tight leading-none pt-1">Volume<br/>Load</span>
+                </div>
+                <div className="flex flex-col items-end">
+                  <span className="font-mono text-xl font-black bg-main text-base border-2 border-line px-4 py-2 shadow-[2px_2px_0px_#000000]">
+                    {currentVolume} KG
+                  </span>
+                  {volumeDeltaPct !== null && (
+                    <span className={`text-[10px] font-black uppercase tracking-widest mt-1.5 flex items-center gap-1 ${volumeDeltaPct > 0 ? 'text-emerald-500' : volumeDeltaPct < 0 ? 'text-red-500' : 'text-muted'}`}>
+                      {/* FRECCE VETTORIALI SVG (No Emojis) */}
+                      {volumeDeltaPct > 0 ? (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="inline-block"><path d="m5 12 7-7 7 7M12 5v14"/></svg>
+                      ) : volumeDeltaPct < 0 ? (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="inline-block"><path d="m19 12-7 7-7-7M12 19V5"/></svg>
+                      ) : (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="inline-block"><path d="M5 12h14"/></svg>
+                      )}
+                      {volumeDeltaPct > 0 ? '+' : ''}{volumeDeltaPct}% vs Precedente
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
 
             {exercises.map((ex, idx) => {
@@ -447,7 +600,6 @@ export default function SessionDetailPage() {
                         <Clock size={12} className="text-brand"/>
                         {formatTime(exTotalTime)}
                       </div>
-                      {/* Bottone Edit Integrato sulla Card */}
                       <button 
                         onClick={() => openEditModal(idx)}
                         className="w-8 h-8 bg-surface text-main border-2 border-line flex items-center justify-center shadow-[2px_2px_0px_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
@@ -456,12 +608,30 @@ export default function SessionDetailPage() {
                       </button>
                     </div>
                   </div>
-                  <div className="p-4 flex flex-wrap gap-2.5 bg-base/50">
-                    {ex.sets.map((set, sIdx) => (
-                      <div key={sIdx} className="bg-surface text-main border-2 border-line px-3 py-1 font-bold text-sm shadow-[2px_2px_0px_#000000]">
-                        {set.weight}kg x {set.reps}
-                      </div>
-                    ))}
+                  <div className="p-4 flex flex-col gap-3 bg-base/50">
+                    {ex.sets.map((set, sIdx) => {
+                      const setId = `${ex.ordine_esercizio}-${set.ordine_serie}`;
+                      const tags = setPRs[setId] || [];
+
+                      return (
+                        <div key={sIdx} className="flex flex-wrap items-center gap-3">
+                          <div className="bg-surface text-main border-2 border-line px-3 py-1 font-bold text-sm shadow-[2px_2px_0px_#000000] shrink-0">
+                            {set.weight}{ex.unita_misura} x {set.reps}
+                          </div>
+                          
+                          {/* TAG DELLE MEDAGLIE (PR) STORICIZZATE (SVG) */}
+                          {tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {tags.map((tag, tIdx) => (
+                                <span key={tIdx} className="text-[9px] font-black uppercase tracking-widest bg-[#ffde59] text-black px-1.5 py-0.5 border-2 border-black shadow-[2px_2px_0px_#000000] rotate-[-2deg] flex items-center gap-1">
+                                  <SvgTrophy size={10} /> {tag}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               );
@@ -538,7 +708,7 @@ export default function SessionDetailPage() {
                   
                   <div className="flex-1 flex gap-2">
                     <div className="flex-1 flex flex-col gap-1">
-                      <span className="text-[9px] font-black uppercase text-muted tracking-widest">Peso (KG)</span>
+                      <span className="text-[9px] font-black uppercase text-muted tracking-widest">Peso ({exercises[editingExIndex].unita_misura})</span>
                       <input 
                         type="number" 
                         value={set.weight} 
@@ -570,7 +740,7 @@ export default function SessionDetailPage() {
               disabled={isSavingEdits}
               className="w-full py-5 bg-brand border-2 border-line text-base font-black uppercase tracking-widest shadow-[4px_4px_0px_#000000] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none transition-all flex justify-center items-center gap-2 mt-auto"
             >
-              {isSavingEdits ? <CleanSpinner size={24} /> : <><CheckCircle2 size={24} strokeWidth={3} /> SALVA CORREZIONE</>}
+              {isSavingEdits ? <CleanSpinner size={24} /> : <><CheckCircle2 size={24} strokeWidth={3} /> SALVA CORREZIONE E RICALCOLA</>}
             </button>
           </div>
         </div>

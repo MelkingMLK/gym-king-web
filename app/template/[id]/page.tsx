@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ChevronLeft, Trash2, Edit3, ChevronRight, X, GripVertical } from "lucide-react";
+import { ChevronLeft, Trash2, Edit3, ChevronRight, X, GripVertical, Globe, Lock, DownloadCloud } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
 
 const CleanSpinner = ({ size = 24 }: { size?: number }) => {
@@ -17,7 +17,13 @@ const CleanSpinner = ({ size = 24 }: { size?: number }) => {
 };
 
 type Giorno = { id_giorno: number; nome_giorno: string; ordine: number; };
-type Template = { id_template: string; nome_template: string; id_categoria: string | null; };
+type Template = { 
+  id_template: string; 
+  nome_template: string; 
+  id_categoria: string | null; 
+  is_public: boolean; 
+  cloned_from: string | null; 
+};
 
 export default function TemplateDetailPage() {
   const params = useParams(); 
@@ -35,12 +41,12 @@ export default function TemplateDetailPage() {
   const [newDayName, setNewDayName] = useState("");
   
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
   // === MOTORE DRAG & DROP VETTORIALE ===
   const dragItem = useRef<number | null>(null);
   const listRef = useRef(giorni);
   
-  // Sincronizza il ref con l'ultimo stato renderizzato per il salvataggio
   useEffect(() => { listRef.current = giorni; }, [giorni]);
 
   async function fetchDettagli() {
@@ -57,7 +63,6 @@ export default function TemplateDetailPage() {
 
   useEffect(() => { if (idTemplate) fetchDettagli(); }, [idTemplate]);
 
-  // Gestione del movimento in tempo reale
   const handleTouchMove = (e: React.TouchEvent) => {
     if (dragItem.current === null) return;
     const touch = e.touches[0];
@@ -67,7 +72,6 @@ export default function TemplateDetailPage() {
     if (rowContainer) {
       const hoverIndex = parseInt(rowContainer.getAttribute("data-drag-index") || "");
       if (!isNaN(hoverIndex) && hoverIndex !== dragItem.current) {
-        // Scambio in tempo reale dell'array (Optimistic UI)
         setGiorni(prev => {
           const newArr = [...prev];
           const dragged = newArr[dragItem.current!];
@@ -80,7 +84,6 @@ export default function TemplateDetailPage() {
     }
   };
 
-  // Salvataggio nel database a fine trascinamento
   const commitReorder = async () => {
     if (dragItem.current === null) return;
     dragItem.current = null;
@@ -129,12 +132,27 @@ export default function TemplateDetailPage() {
     } catch (error) { console.error(error); } finally { setIsProcessing(false); }
   };
 
+  const togglePublicStatus = async () => {
+    if (!template || template.cloned_from) return; 
+    setIsUpdatingStatus(true);
+    const newStatus = !template.is_public;
+    try {
+      const { error } = await supabase.from('Template_Schede').update({ is_public: newStatus }).eq('id_template', template.id_template);
+      if (error) throw error;
+      setTemplate({ ...template, is_public: newStatus });
+    } catch (e) {
+      console.error("Errore aggiornamento stato pubblico:", e);
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
   if (isLoading) return <main className="flex min-h-screen items-center justify-center bg-base text-main"><CleanSpinner size={64}/></main>;
 
   return (
     <main className="flex min-h-screen flex-col items-center pt-12 px-4 pb-20 relative overflow-x-hidden bg-base transition-colors duration-300">
       
-      <div className="w-full max-w-2xl flex justify-between items-start mb-10 relative z-10">
+      <div className="w-full max-w-2xl flex justify-between items-start mb-4 relative z-10">
         <div className="flex gap-4 items-center">
           <Link href="/create-template">
             <div className="w-12 h-12 bg-surface flex items-center justify-center border-2 border-line shadow-[4px_4px_0px_#000000] dark:shadow-[4px_4px_0px_#804CD9] transition-all active:translate-x-[4px] active:translate-y-[4px] active:shadow-none">
@@ -156,15 +174,40 @@ export default function TemplateDetailPage() {
         </button>
       </div>
 
+      {/* === BOTTONE PUBBLICO / PRIVATO INTELLIGENTE === */}
+      {template && (
+        <div className="w-full max-w-2xl mb-8 relative z-10 flex justify-end">
+          {template.cloned_from ? (
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-white bg-[#3366ff] border-2 border-[#1a1a1a] px-4 py-2 shadow-[2px_2px_0px_#000000]">
+              <DownloadCloud size={14} strokeWidth={3} /> Scaricato
+            </div>
+          ) : (
+            <button 
+              onClick={togglePublicStatus}
+              disabled={isUpdatingStatus}
+              className={`flex items-center gap-2 px-5 py-2 font-black uppercase tracking-widest text-xs transition-all outline-none border-2 border-line shadow-[4px_4px_0px_#000000] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none 
+                ${template.is_public ? 'bg-brand text-base' : 'bg-surface text-main'}`}
+            >
+              {isUpdatingStatus ? (
+                <CleanSpinner size={16} />
+              ) : template.is_public ? (
+                <><Globe size={16} strokeWidth={3} /> Pubblico</>
+              ) : (
+                <><Lock size={16} strokeWidth={3} /> Privato</>
+              )}
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="w-full max-w-2xl flex flex-col gap-5 relative z-10">
         {giorni.map((giorno, index) => (
           <div 
-            key={giorno.id_giorno} 
-            data-drag-index={index}
-            className="w-full bg-surface border-2 border-line p-4 flex items-center justify-between shadow-[6px_6px_0px_#000000] dark:shadow-[6px_6px_0px_#804CD9] transition-all"
-          >
-            <div className="flex items-center gap-3 overflow-hidden">
-              {/* MANIGLIA DRAG & DROP: touch-none è la chiave di volta */}
+              key={giorno.id_giorno} 
+              data-drag-index={index}
+              className="w-full bg-surface border-2 border-line p-4 flex items-center justify-between shadow-[6px_6px_0px_#000000] dark:shadow-[6px_6px_0px_#804CD9] transition-all select-none"
+            >
+              <div className="flex items-center gap-3 overflow-hidden">
               <div 
                 onTouchStart={(e) => { e.stopPropagation(); dragItem.current = index; }}
                 onTouchMove={handleTouchMove}
@@ -192,8 +235,6 @@ export default function TemplateDetailPage() {
         ))}
       </div>
 
-      {/* --- MODALI OMITTITE PER SINTESI, LASCIA QUELLE CHE AVEVI GIA' NEL FILE (Rinomina, Elimina, ecc.) --- */}
-      {/* INCOLLA QUI I MODALI preesistenti (isRenamingTemplate, showingDeleteAlert, dayToRename) */}
       {isRenamingTemplate && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-base w-full max-w-sm border-4 border-line p-8 flex flex-col gap-6 shadow-[12px_12px_0px_#000000] dark:shadow-[12px_12px_0px_#804CD9] animate-in zoom-in-95 duration-200">

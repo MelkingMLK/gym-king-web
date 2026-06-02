@@ -3,11 +3,10 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ChevronLeft, Plus, Search, X, Trash2, Edit3, ChevronRight, ChevronDown, GripVertical } from "lucide-react";
-import { supabase } from "../../../lib/supabase";
+import { ChevronLeft, Plus, Search, X, Trash2, Edit3, ChevronRight, ChevronDown, GripVertical, FlaskConical } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 import Fuse from "fuse.js";
 
-// === SPINNER REATTIVO PURO TAILWIND ===
 const CleanSpinner = ({ size = 24 }: { size?: number }) => {
   const strokeWidth = Math.max(2, Math.round(size * 0.1));
   return (
@@ -21,7 +20,7 @@ const CleanSpinner = ({ size = 24 }: { size?: number }) => {
 type Giorno = { id_giorno: number; id_template: string; nome_giorno: string; };
 type Muscolo = { id_gruppo?: number; id?: number; nome: string; };
 type Attrezzo = { id_attrezzo?: number; id?: number; nome: string; };
-type Esercizio = { id_esercizio?: number; id?: number; nome: string; gif_url?: string; };
+type Esercizio = { id_esercizio?: number; id?: number; nome: string; gif_url?: string; is_approved?: boolean; user_id?: string; };
 type RelazioneMuscolo = { id_esercizio?: number; id_gruppo?: number; };
 type RelazioneAttrezzo = { id_esercizio?: number; id_attrezzo?: number; };
 type SchedaEsercizio = { 
@@ -67,20 +66,15 @@ const ExerciseIcon = ({ nome, gif_url, muscles, onImageClick }: { nome: string, 
           e.stopPropagation();
           onImageClick(gif_url);
         }}
-        className="w-16 h-16 shrink-0 border-2 border-line bg-white flex items-center justify-center overflow-hidden shadow-[2px_2px_0px_#000000] dark:shadow-[2px_2px_0px_#804CD9] cursor-zoom-in active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all"
+        className="w-16 h-16 shrink-0 border-2 border-line bg-white flex items-center justify-center overflow-hidden shadow-[2px_2px_0px_#000000] cursor-zoom-in active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all"
       >
-        <img 
-          src={gif_url} 
-          alt={nome} 
-          className="w-full h-full object-cover mix-blend-multiply p-1 pointer-events-none"
-          onError={() => setImgError(true)} 
-        />
+        <img src={gif_url} alt={nome} className="w-full h-full object-cover mix-blend-multiply p-1 pointer-events-none" onError={() => setImgError(true)} />
       </div>
     );
   }
 
   return (
-    <div className={`w-16 h-16 shrink-0 border-2 border-line flex items-center justify-center shadow-[2px_2px_0px_#000000] dark:shadow-[2px_2px_0px_#804CD9] ${colorClass}`}>
+    <div className={`w-16 h-16 shrink-0 border-2 border-line flex items-center justify-center shadow-[2px_2px_0px_#000000] ${colorClass}`}>
       <span className="font-heading text-2xl font-black uppercase tracking-tighter">{initials}</span>
     </div>
   );
@@ -93,9 +87,8 @@ export default function DayEditorPage() {
   const [giorno, setGiorno] = useState<Giorno | null>(null);
   const [eserciziGiorno, setEserciziGiorno] = useState<SchedaEsercizio[]>([]);
   
-  // === REFS UNICI PER IL DRAG & DROP VETTORIALE ===
+  // DRAG ITEM REF
   const dragItem = useRef<number | null>(null);
-  const dragOverItem = useRef<number | null>(null); 
   const listRef = useRef(eserciziGiorno);
   
   useEffect(() => { listRef.current = eserciziGiorno; }, [eserciziGiorno]);
@@ -128,17 +121,32 @@ export default function DayEditorPage() {
   const [swipedExerciseId, setSwipedExerciseId] = useState<number | null>(null);
   const [previewGif, setPreviewGif] = useState<string | null>(null);
 
+  // === STATI PER INCUBATRICE UGC ===
+  const [isCreatingUGC, setIsCreatingUGC] = useState(false);
+  const [ugcMuscleId, setUgcMuscleId] = useState<string | null>(null);
+  const [ugcEquipmentId, setUgcEquipmentId] = useState<string | null>(null);
+  const [ugcNomeInglese, setUgcNomeInglese] = useState("");
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
   async function fetchData() {
     setIsLoading(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) setCurrentUserId(user.id);
+
       const { data: gData } = await supabase.from('Giorni_Template').select('*').eq('id_giorno', idGiorno).single();
       if (gData) setGiorno(gData as Giorno);
 
       const { data: seData } = await supabase.from('Scheda_Esercizi').select('*, Esercizi(nome, gif_url)').eq('id_giorno', idGiorno).order('ordine');
       if (seData) setEserciziGiorno(seData as any);
 
-      const { data: eData } = await supabase.from('Esercizi').select('id_esercizio, nome, gif_url').order('nome');
-      if (eData) setTuttiEsercizi(eData as Esercizio[]);
+      let queryEsercizi = supabase.from('Esercizi').select('id_esercizio, nome, gif_url, is_approved, user_id').order('nome');
+      const { data: eData } = await queryEsercizi;
+      
+      if (eData) {
+        const validEsercizi = eData.filter(e => e.is_approved === true || e.user_id === user?.id);
+        setTuttiEsercizi(validEsercizi as Esercizio[]);
+      }
 
       const { data: mData } = await supabase.from('GruppiMuscolari').select('*').order('nome');
       if (mData) setMuscoli(mData as Muscolo[]);
@@ -153,7 +161,11 @@ export default function DayEditorPage() {
       }
       if (relMData) setRelMuscoli(relMData as RelazioneMuscolo[]);
 
-      const { data: relAData } = await supabase.from('Esercizio_Attrezzo').select('*');
+      let { data: relAData, error: relAErr } = await supabase.from('Esercizio_Attrezzo').select('*');
+      if (relAErr) {
+          const fallback = await supabase.from('esercizio_attrezzo').select('*');
+          relAData = fallback.data;
+      }
       if (relAData) setRelAttrezzi(relAData as RelazioneAttrezzo[]);
     } catch (error) {
       console.error(error);
@@ -163,6 +175,28 @@ export default function DayEditorPage() {
   }
 
   useEffect(() => { if (idGiorno) fetchData(); }, [idGiorno]);
+
+  const commitReorder = async () => {
+    const currentList = listRef.current;
+    const updatedExercises = currentList.map((ex, idx) => ({ ...ex, ordine: idx + 1 }));
+    setEserciziGiorno(updatedExercises); 
+
+    const updates = updatedExercises.map(ex => ({
+      id_scheda_esercizio: ex.id_scheda_esercizio,
+      id_giorno: ex.id_giorno,
+      id_esercizio: ex.id_esercizio,
+      serie: ex.serie,
+      ripetizioni: ex.ripetizioni,
+      recupero_sec: ex.recupero_sec,
+      ordine: ex.ordine,
+      unita_misura: ex.unita_misura 
+    }));
+    try {
+      await supabase.from('Scheda_Esercizi').upsert(updates, { onConflict: 'id_scheda_esercizio' });
+    } catch(e) {
+      console.error("Errore salvataggio ordine", e);
+    }
+  };
 
   const toggleMuscle = (id: string) => {
     setSelectedMuscles(prev => prev.includes(id) ? prev.filter(mId => mId !== id) : [...prev, id]);
@@ -195,6 +229,72 @@ export default function DayEditorPage() {
     risultatiFinali = filtratiBase;
   }
 
+  // === MOTORE DI CREAZIONE UGC (CON ANTI-COLLISIONE) ===
+// === MOTORE DI CREAZIONE UGC (CON ANTI-COLLISIONE) ===
+  const handleCreateUGCExercise = async () => {
+    if (!searchText.trim() || !ugcMuscleId || !ugcEquipmentId || !currentUserId) return;
+    setIsCreatingUGC(true);
+    
+    try {
+      const nomeUppercase = searchText.trim().toUpperCase();
+      
+      // 1. Controllo Anti-Collisione
+      const { data: existing } = await supabase
+        .from('Esercizi')
+        .select('*')
+        .ilike('nome', nomeUppercase)
+        .maybeSingle();
+
+      let idEsercizio;
+      let finalEx: Esercizio;
+
+      if (existing) {
+        // Se esiste già, catturiamo l'ID ignorando l'inserimento
+        idEsercizio = existing.id_esercizio ?? existing.id;
+        finalEx = { id_esercizio: idEsercizio, nome: existing.nome, is_approved: existing.is_approved, user_id: existing.user_id };
+      } else {
+        // 2. Inserimento di un nuovo record con metadati
+        const { data: newEx, error: exErr } = await supabase
+          .from('Esercizi')
+          .insert([{ 
+            nome: nomeUppercase, 
+            nome_inglese: ugcNomeInglese.trim() || null,
+            is_approved: false, 
+            user_id: currentUserId 
+          }])
+          .select().single();
+        
+        if (exErr || !newEx) throw exErr || new Error("Errore inserimento Esercizio");
+
+        idEsercizio = newEx.id_esercizio ?? newEx.id;
+        finalEx = { id_esercizio: idEsercizio, nome: newEx.nome, is_approved: false, user_id: currentUserId };
+        
+        // 3. Creazione Relazioni (Gestione Errori Pulita e Tipizzata)
+        const { error: relMErr } = await supabase.from('Esercizio_Muscolo').insert([{ id_esercizio: idEsercizio, id_gruppo: Number(ugcMuscleId) }]);
+        if (relMErr) {
+          await supabase.from('esercizio_muscolo').insert([{ esercizio_id: idEsercizio, gruppo_id: Number(ugcMuscleId) }]);
+        }
+
+        const { error: relAErr } = await supabase.from('Esercizio_Attrezzo').insert([{ id_esercizio: idEsercizio, id_attrezzo: Number(ugcEquipmentId) }]);
+        if (relAErr) {
+          await supabase.from('esercizio_attrezzo').insert([{ esercizio_id: idEsercizio, attrezzo_id: Number(ugcEquipmentId) }]);
+        }
+      }
+
+      // 4. Update UI Locale
+      setTuttiEsercizi(prev => [...prev, finalEx]);
+      setRelMuscoli(prev => [...prev, { id_esercizio: idEsercizio, id_gruppo: Number(ugcMuscleId) }]);
+      setRelAttrezzi(prev => [...prev, { id_esercizio: idEsercizio, id_attrezzo: Number(ugcEquipmentId) }]);
+      
+      handleExerciseSelect(finalEx);
+    } catch (error) {
+      console.error("Errore Creazione UGC:", error);
+      alert("Errore critico nella comunicazione col database.");
+    } finally {
+      setIsCreatingUGC(false);
+    }
+  };
+
   const handleSaveExercise = async () => {
     if (!selectedExercise || !giorno) return;
     setIsSaving(true);
@@ -202,32 +302,18 @@ export default function DayEditorPage() {
       const esId = selectedExercise.id_esercizio ?? selectedExercise.id;
       if (editingId) {
         await supabase.from('Scheda_Esercizi').update({ 
-          serie, 
-          ripetizioni, 
-          recupero_sec: parseInt(recupero) || 0,
-          unita_misura: unitaMisura
+          serie, ripetizioni, recupero_sec: parseInt(recupero) || 0, unita_misura: unitaMisura
         }).eq('id_scheda_esercizio', editingId);
       } else {
         await supabase.from('Scheda_Esercizi').insert([{ 
-          id_giorno: giorno.id_giorno, 
-          id_esercizio: esId, 
-          ordine: eserciziGiorno.length + 1, 
-          serie, 
-          ripetizioni, 
-          recupero_sec: parseInt(recupero) || 0,
-          unita_misura: unitaMisura
+          id_giorno: giorno.id_giorno, id_esercizio: esId, ordine: eserciziGiorno.length + 1, 
+          serie, ripetizioni, recupero_sec: parseInt(recupero) || 0, unita_misura: unitaMisura
         }]);
       }
       
-      setIsDetailSheetOpen(false); 
-      setSelectedExercise(null); 
-      setEditingId(null); 
-      setUnitaMisura("KG");
-      setSearchText("");
-      setSelectedMuscles([]);
-      setSelectedEquipment(null);
-      setIsMuscoliOpen(false);
-      setIsAttrezziOpen(false);
+      setIsDetailSheetOpen(false); setSelectedExercise(null); setEditingId(null); 
+      setUnitaMisura("KG"); setSearchText(""); setSelectedMuscles([]); setSelectedEquipment(null);
+      setIsMuscoliOpen(false); setIsAttrezziOpen(false); setUgcMuscleId(null); setUgcEquipmentId(null); setUgcNomeInglese("");
       await fetchData();
     } catch (error) { console.error(error); } finally { setIsSaving(false); }
   };
@@ -259,11 +345,11 @@ export default function DayEditorPage() {
       
       <div className="w-full max-w-2xl flex justify-between items-center mb-8">
         <Link href={giorno ? `/template/${giorno.id_template}` : "/create-template"}>
-          <div className="w-12 h-12 bg-surface flex items-center justify-center border-2 border-line shadow-[4px_4px_0px_#000000] dark:shadow-[4px_4px_0px_#804CD9] transition-all active:translate-x-[4px] active:translate-y-[4px] active:shadow-none">
+          <div className="w-12 h-12 bg-surface flex items-center justify-center border-2 border-line shadow-[4px_4px_0px_#000000] transition-all active:translate-x-[4px] active:translate-y-[4px] active:shadow-none">
             <ChevronLeft className="text-main" size={24} strokeWidth={3} />
           </div>
         </Link>
-        <button onClick={() => setIsSearchSheetOpen(true)} className="w-12 h-12 bg-brand flex items-center justify-center border-2 border-line shadow-[4px_4px_0px_#000000] dark:shadow-[4px_4px_0px_#804CD9] transition-all active:translate-x-[4px] active:translate-y-[4px] active:shadow-none">
+        <button onClick={() => setIsSearchSheetOpen(true)} className="w-12 h-12 bg-brand flex items-center justify-center border-2 border-line shadow-[4px_4px_0px_#000000] transition-all active:translate-x-[4px] active:translate-y-[4px] active:shadow-none">
           <Plus className="text-base" size={24} strokeWidth={3} />
         </button>
       </div>
@@ -272,6 +358,11 @@ export default function DayEditorPage() {
 
       <div className="w-full max-w-2xl flex flex-col gap-5">
         {eserciziGiorno.map((es, index) => {
+          // Stato locale isolato per tracciare il tocco di questa specifica riga
+          let touchStartX = 0;
+          let touchStartY = 0;
+          let isHorizontalSwipe = false;
+            
           const esId = String(es.id_esercizio);
           const relatedMuscles = muscoli.filter(m => 
             relMuscoli.some(rm => String(rm.id_esercizio ?? (rm as any).esercizio_id) === esId && String(rm.id_gruppo ?? (rm as any).gruppo_id) === String(m.id_gruppo ?? m.id))
@@ -281,108 +372,161 @@ export default function DayEditorPage() {
             <div 
               key={`esercizio-${es.id_scheda_esercizio}`} 
               data-drag-index={index}
-              className="relative w-full border-2 border-line shadow-[6px_6px_0px_#000000] dark:shadow-[6px_6px_0px_#804CD9] bg-[#ff331f] overflow-hidden"
+              onDragEnter={(e) => {
+                e.preventDefault();
+                if (dragItem.current !== null && dragItem.current !== index) {
+                  setEserciziGiorno(prev => {
+                    const newArr = [...prev];
+                    const dragged = newArr[dragItem.current!];
+                    newArr.splice(dragItem.current!, 1);
+                    newArr.splice(index, 0, dragged);
+                    dragItem.current = index;
+                    return newArr;
+                  });
+                }
+              }}
+              onDragOver={(e) => e.preventDefault()}
+              className="relative w-full border-2 border-line shadow-[6px_6px_0px_#000000] bg-[#ff331f] overflow-hidden select-none"
+              style={{ touchAction: "pan-y" }} // Blocca i conflitti di scroll nativo del browser durante lo swipe
             >
-              {/* DELETE BUTTON BACKGROUND */}
-              <div className="absolute top-0 bottom-0 right-0 w-24 flex items-center justify-center text-white">
-                <button onClick={() => handleDeleteExercise(es.id_scheda_esercizio)} className="w-full h-full flex items-center justify-center outline-none">
+              {/* PANNELLO DI CANCELLAZIONE SOTTOSTANTE */}
+              <div className="absolute top-0 bottom-0 right-0 w-24 flex items-center justify-center text-white z-0">
+                <button 
+                  onClick={() => handleDeleteExercise(es.id_scheda_esercizio)} 
+                  className="w-full h-full flex items-center justify-center outline-none active:bg-red-800 transition-colors"
+                >
                   <Trash2 size={28} strokeWidth={2.5} />
                 </button>
               </div>
               
-              {/* CONTAINER INTERAGIBILE RIGIDO */}
-             <div 
-                className={`relative z-10 w-full bg-surface p-4 border-r-2 border-line flex items-center justify-between transition-transform duration-300 ${swipedExerciseId === es.id_scheda_esercizio ? '-translate-x-24' : ''}`}
+              {/* CONTENITORE SUPERIORE CHE SCIVOLA */}
+              <div 
+                className={`relative z-10 w-full bg-surface border-r-2 border-line flex items-stretch transition-transform duration-300 ease-out ${swipedExerciseId === es.id_scheda_esercizio ? '-translate-x-24' : 'translate-x-0'}`}
               >
-                <div className="flex items-center gap-3">
-                  
-                  {/* MANIGLIA DRAG & DROP ISOLATA */}
-                  <div 
-                    onTouchStart={(e) => { e.stopPropagation(); dragItem.current = index; }}
-                    onTouchMove={(e) => {
-                      if (dragItem.current === null) return;
-                      const touch = e.touches[0];
-                      const elementTarget = document.elementFromPoint(touch.clientX, touch.clientY);
-                      const rowContainer = elementTarget?.closest("[data-drag-index]");
-                      if (rowContainer) {
-                        const hoverIndex = parseInt(rowContainer.getAttribute("data-drag-index") || "");
-                        if (!isNaN(hoverIndex) && hoverIndex !== dragItem.current) {
-                          setEserciziGiorno(prev => {
-                            const newArr = [...prev];
-                            const dragged = newArr[dragItem.current!];
-                            newArr.splice(dragItem.current!, 1);
-                            newArr.splice(hoverIndex, 0, dragged);
-                            dragItem.current = hoverIndex;
-                            return newArr;
-                          });
-                        }
+                
+                {/* MANIGLIA ISOLATA: Gestisce SOLO il Drag & Drop */}
+                <div 
+                  draggable={typeof window !== "undefined" && !('ontouchstart' in window)} // Attivo solo se NON è un dispositivo touch
+                  onDragStart={(e) => { dragItem.current = index; e.dataTransfer.effectAllowed = 'move'; }}
+                  onDragEnd={() => { dragItem.current = null; commitReorder(); }}
+                  onTouchStart={(e) => { 
+                    e.stopPropagation(); // Impedisce alla card di interpretarlo come swipe
+                    dragItem.current = index; 
+                  }}
+                  onTouchMove={(e) => {
+                    e.stopPropagation();
+                    if (dragItem.current === null) return;
+                    const touch = e.touches[0];
+                    const target = document.elementFromPoint(touch.clientX, touch.clientY);
+                    const row = target?.closest('[data-drag-index]');
+                    if (row) {
+                      const hoverIndex = parseInt(row.getAttribute('data-drag-index') || "");
+                      if (!isNaN(hoverIndex) && hoverIndex !== dragItem.current) {
+                        setEserciziGiorno(prev => {
+                          const newArr = [...prev];
+                          const dragged = newArr[dragItem.current!];
+                          newArr.splice(dragItem.current!, 1);
+                          newArr.splice(hoverIndex, 0, dragged);
+                          dragItem.current = hoverIndex;
+                          return newArr;
+                        });
                       }
-                    }}
-                    onTouchEnd={async (e) => { 
-                      e.stopPropagation(); 
-                      if (dragItem.current === null) return;
-                      dragItem.current = null;
-                      
-                      const currentList = listRef.current;
-                      const updatedExercises = currentList.map((es, idx) => ({ ...es, ordine: idx + 1 }));
-                      setEserciziGiorno(updatedExercises); 
+                    }
+                  }}
+                  onTouchEnd={(e) => { 
+                    e.stopPropagation(); 
+                    dragItem.current = null; 
+                    commitReorder(); 
+                  }}
+                  className="shrink-0 flex items-center justify-center px-4 text-main/30 hover:text-main transition-colors cursor-grab active:cursor-grabbing touch-none"
+                >
+                  <GripVertical size={24} strokeWidth={2.5} />
+                </div>
 
-                      const updates = updatedExercises.map(es => ({
-                        id_scheda_esercizio: es.id_scheda_esercizio,
-                        id_giorno: es.id_giorno,
-                        id_esercizio: es.id_esercizio,
-                        serie: es.serie,
-                        ripetizioni: es.ripetizioni,
-                        recupero_sec: es.recupero_sec,
-                        ordine: es.ordine,
-                        unita_misura: es.unita_misura 
-                      }));
-                      await supabase.from('Scheda_Esercizi').upsert(updates);
-                    }}
-                    className="shrink-0 text-main/30 hover:text-main transition-colors mr-1 cursor-grab active:cursor-grabbing touch-none p-2 -ml-2"
-                  >
-                    <GripVertical size={24} strokeWidth={2.5} />
-                  </div>
-
+                {/* CORPO INFORMATIVO: Gestisce lo Swipe e il Click di Modifica */}
+                <div 
+                  className="flex-1 flex items-center gap-3 py-3 pr-4 cursor-pointer"
+                  onTouchStart={(e) => {
+                    touchStartX = e.touches[0].clientX;
+                    touchStartY = e.touches[0].clientY;
+                    isHorizontalSwipe = false;
+                  }}
+                  onTouchMove={(e) => {
+                    const deltaX = touchStartX - e.touches[0].clientX;
+                    const deltaY = Math.abs(touchStartY - e.touches[0].clientY);
+                    
+                    // Se il movimento orizzontale supera una soglia minima ed è maggiore del movimento verticale
+                    if (Math.abs(deltaX) > 10 && deltaY < 15) {
+                      isHorizontalSwipe = true;
+                      // Impediamo il trigger del click di edit o lo scroll della pagina durante lo swipe
+                      if (e.cancelable) e.preventDefault(); 
+                    }
+                  }}
+                  onTouchEnd={(e) => {
+                    const deltaX = touchStartX - e.changedTouches[0].clientX;
+                    const deltaY = Math.abs(touchStartY - e.changedTouches[0].clientY);
+                    
+                    if (isHorizontalSwipe && deltaY < 30) {
+                      if (deltaX > 45) {
+                        setSwipedExerciseId(es.id_scheda_esercizio);
+                      } else if (deltaX < -45) {
+                        setSwipedExerciseId(null);
+                      }
+                    }
+                  }}
+                  onClick={(e) => {
+                    // Se l'utente ha swipato o sta chiudendo la card, blocchiamo l'apertura della modale di modifica
+                    if (isHorizontalSwipe) return;
+                    if (swipedExerciseId === es.id_scheda_esercizio) {
+                      setSwipedExerciseId(null);
+                      return;
+                    }
+                    handleOpenEdit(es);
+                  }}
+                >
                   <ExerciseIcon nome={es.Esercizi?.nome} gif_url={es.Esercizi?.gif_url} muscles={relatedMuscles} onImageClick={setPreviewGif} />
 
-                  <div 
-                    className="flex flex-col gap-1 cursor-pointer ml-1"
-                    onClick={() => handleOpenEdit(es)}
-                  >
-                    <span className="font-heading text-lg text-main font-black uppercase tracking-tight leading-tight line-clamp-1">{es.Esercizi?.nome || "Esercizio"}</span>
-                    {relatedMuscles.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {relatedMuscles.map(m => (
-                          <span key={m.id_gruppo ?? m.id} className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 bg-line text-base">{m.nome}</span>
-                        ))}
-                      </div>
-                    )}
-                    <span className="text-muted font-bold text-xs tracking-wider uppercase mt-1">{es.serie} SET • {es.ripetizioni} RIP • {es.recupero_sec}S REST • {es.unita_misura || 'KG'}</span>
+                  <div className="flex-1 flex items-center justify-between group">
+                    <div className="flex flex-col gap-1">
+                      <span className="font-heading text-lg text-main font-black uppercase tracking-tight leading-tight line-clamp-1 group-hover:text-brand transition-colors">
+                        {es.Esercizi?.nome || "Esercizio"}
+                      </span>
+                      {relatedMuscles.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {relatedMuscles.map(m => (
+                            <span key={m.id_gruppo ?? m.id} className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 bg-line text-base">{m.nome}</span>
+                          ))}
+                        </div>
+                      )}
+                      <span className="text-muted font-bold text-xs tracking-wider uppercase mt-1">
+                        {es.serie} SET • {es.ripetizioni} RIP • {es.recupero_sec}S REST • {es.unita_misura || 'KG'}
+                      </span>
+                    </div>
+                    <Edit3 size={20} strokeWidth={2.5} className="text-muted shrink-0 ml-2 group-hover:text-brand transition-colors" />
                   </div>
                 </div>
-                <Edit3 size={20} strokeWidth={2.5} className="text-muted pointer-events-none shrink-0 ml-2" />
+
               </div>
             </div>
           );
         })}
 
         {eserciziGiorno.length === 0 && (
-          <div className="text-center mt-10">
-             <p className="text-muted font-black uppercase tracking-widest text-sm">Nessun Core o esercizio inserito.</p>
+          <div className="text-center mt-10 border-4 border-dashed border-line p-10 bg-surface">
+             <p className="text-muted font-black uppercase tracking-widest text-sm">Nessun esercizio inserito.</p>
              <p className="text-main font-bold mt-2">Usa il tasto + in alto per iniziare.</p>
           </div>
         )}
       </div>
 
-      {/* MODALE RICERCA ESERCIZI */}
+      {/* MODALE RICERCA ESERCIZI CON UGC ARRICCHITO */}
       {isSearchSheetOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex flex-col justify-end">
-          <div className="bg-base w-full h-[90vh] border-t-4 border-line flex flex-col shadow-[0px_-8px_0px_rgba(0,0,0,1)] dark:shadow-[0px_-8px_0px_rgba(128,76,217,1)] animate-in slide-in-from-bottom-full duration-300">
+          <div className="bg-base w-full h-[90vh] border-t-4 border-line flex flex-col shadow-[0px_-8px_0px_rgba(0,0,0,1)] animate-in slide-in-from-bottom-full duration-300">
             
             <div className="flex justify-between items-center p-6 border-b-2 border-line shrink-0 bg-surface">
               <h2 className="font-heading text-2xl font-black uppercase text-main tracking-tighter">Catalogo</h2>
-              <button onClick={() => { setIsSearchSheetOpen(false); setSelectedMuscles([]); setSelectedEquipment(null); setSearchText(""); setIsMuscoliOpen(false); setIsAttrezziOpen(false); }} className="w-10 h-10 bg-base flex items-center justify-center border-2 border-line shadow-[2px_2px_0px_#000000] dark:shadow-[2px_2px_0px_#804CD9] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all">
+              <button onClick={() => { setIsSearchSheetOpen(false); setSelectedMuscles([]); setSelectedEquipment(null); setSearchText(""); setIsMuscoliOpen(false); setIsAttrezziOpen(false); setUgcMuscleId(null); setUgcEquipmentId(null); setUgcNomeInglese(""); }} className="w-10 h-10 bg-base flex items-center justify-center border-2 border-line shadow-[2px_2px_0px_#000000] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all">
                 <X size={20} strokeWidth={3} className="text-main"/>
               </button>
             </div>
@@ -395,7 +539,7 @@ export default function DayEditorPage() {
                   placeholder="Cerca esercizio..." 
                   value={searchText} 
                   onChange={(e) => setSearchText(e.target.value)} 
-                  className="w-full bg-surface pl-14 pr-5 py-5 border-2 border-line text-main font-bold uppercase tracking-wide outline-none focus:shadow-[4px_4px_0px_#000000] dark:focus:shadow-[4px_4px_0px_#804CD9] transition-all placeholder:text-muted/50"
+                  className="w-full bg-surface pl-14 pr-5 py-5 border-2 border-line text-main font-bold uppercase tracking-wide outline-none focus:shadow-[4px_4px_0px_#000000] transition-all placeholder:text-muted/50"
                 />
               </div>
 
@@ -412,7 +556,7 @@ export default function DayEditorPage() {
                       {muscoli.map(m => {
                         const mId = String(m.id_gruppo ?? m.id);
                         return (
-                          <button key={`btn-muscolo-${mId}`} onClick={() => toggleMuscle(mId)} className={`px-4 py-2 border-2 border-line text-xs font-black uppercase tracking-widest transition-all ${selectedMuscles.includes(mId) ? 'bg-brand text-base shadow-[2px_2px_0px_#000000] dark:shadow-[2px_2px_0px_#804CD9] translate-x-[-1px] translate-y-[-1px]' : 'bg-surface text-main hover:bg-base'}`}>
+                          <button key={`btn-muscolo-${mId}`} onClick={() => toggleMuscle(mId)} className={`px-4 py-2 border-2 border-line text-xs font-black uppercase tracking-widest transition-all ${selectedMuscles.includes(mId) ? 'bg-brand text-base shadow-[2px_2px_0px_#000000] translate-x-[-1px] translate-y-[-1px]' : 'bg-surface text-main hover:bg-base'}`}>
                             {m.nome}
                           </button>
                         )
@@ -433,7 +577,7 @@ export default function DayEditorPage() {
                       {attrezzi.map(a => {
                         const aId = String(a.id_attrezzo ?? a.id);
                         return (
-                          <button key={`btn-attrezzo-${aId}`} onClick={() => setSelectedEquipment(selectedEquipment === aId ? null : aId)} className={`px-4 py-2 border-2 border-line text-xs font-black uppercase tracking-widest transition-all ${selectedEquipment === aId ? 'bg-brand text-base shadow-[2px_2px_0px_#000000] dark:shadow-[2px_2px_0px_#804CD9] translate-x-[-1px] translate-y-[-1px]' : 'bg-surface text-main hover:bg-base'}`}>
+                          <button key={`btn-attrezzo-${aId}`} onClick={() => setSelectedEquipment(selectedEquipment === aId ? null : aId)} className={`px-4 py-2 border-2 border-line text-xs font-black uppercase tracking-widest transition-all ${selectedEquipment === aId ? 'bg-brand text-base shadow-[2px_2px_0px_#000000] translate-x-[-1px] translate-y-[-1px]' : 'bg-surface text-main hover:bg-base'}`}>
                             {a.nome}
                           </button>
                         )
@@ -451,22 +595,15 @@ export default function DayEditorPage() {
                   );
 
                   return (
-                    <button key={`result-${esId}`} onClick={() => handleExerciseSelect(es)} className="group w-full text-left p-4 bg-surface border-2 border-line hover:shadow-[4px_4px_0px_#000000] dark:hover:shadow-[4px_4px_0px_#804CD9] hover:-translate-y-1 flex justify-between items-center transition-all">
+                    <button key={`result-${esId}`} onClick={() => handleExerciseSelect(es)} className="group w-full text-left p-4 bg-surface border-2 border-line hover:shadow-[4px_4px_0px_#000000] hover:-translate-y-1 flex justify-between items-center transition-all">
                       <div className="flex items-center gap-4">
-                        <ExerciseIcon 
-                          nome={es.nome} 
-                          gif_url={es.gif_url} 
-                          muscles={relatedMuscles} 
-                          onImageClick={setPreviewGif} 
-                        />
+                        <ExerciseIcon nome={es.nome} gif_url={es.gif_url} muscles={relatedMuscles} onImageClick={setPreviewGif} />
                         <div className="flex flex-col gap-2">
                           <span className="font-heading text-lg font-black uppercase text-main tracking-tight leading-tight">{es.nome}</span>
                           {relatedMuscles.length > 0 && (
                             <div className="flex flex-wrap gap-1">
                               {relatedMuscles.map(m => (
-                                <span key={`tag-muscolo-${m.id_gruppo ?? m.id}`} className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 bg-line text-base">
-                                  {m.nome}
-                                </span>
+                                <span key={`tag-muscolo-${m.id_gruppo ?? m.id}`} className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 bg-line text-base">{m.nome}</span>
                               ))}
                             </div>
                           )}
@@ -476,8 +613,57 @@ export default function DayEditorPage() {
                     </button>
                   );
                 })}
-                {risultatiFinali.length === 0 && (searchText || selectedMuscles.length > 0 || selectedEquipment) && (
-                  <p className="text-muted text-center mt-10 text-sm font-bold uppercase tracking-widest">Nessun esercizio corrisponde.</p>
+                
+                {/* BLOCCO UGC */}
+                {risultatiFinali.length === 0 && searchText.trim().length > 1 && (
+                  <div className="mt-4 bg-brand/10 border-4 border-brand p-6 shadow-[8px_8px_0px_var(--brand-accent)] flex flex-col gap-4 animate-in fade-in zoom-in-95">
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center gap-2 text-brand">
+                        <FlaskConical size={20} strokeWidth={3} />
+                        <span className="text-[10px] font-black uppercase tracking-widest border-2 border-brand px-2 py-0.5 w-fit">Incubatrice</span>
+                      </div>
+                      <h3 className="font-heading text-2xl font-black uppercase text-main tracking-tighter leading-tight break-words">
+                        Crea "{searchText}"
+                      </h3>
+                    </div>
+                    
+                    <div className="flex flex-col gap-3 mt-2">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-main">Muscolo <span className="text-brand">*</span></label>
+                        <select value={ugcMuscleId || ""} onChange={(e) => setUgcMuscleId(e.target.value)} className="w-full bg-surface border-2 border-line p-3 font-bold uppercase text-xs tracking-wider outline-none focus:border-brand appearance-none">
+                          <option value="" disabled>-- Scegli --</option>
+                          {muscoli.map(m => <option key={`ugc-m-${m.id_gruppo ?? m.id}`} value={m.id_gruppo ?? m.id}>{m.nome}</option>)}
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-main">Attrezzo <span className="text-brand">*</span></label>
+                        <select value={ugcEquipmentId || ""} onChange={(e) => setUgcEquipmentId(e.target.value)} className="w-full bg-surface border-2 border-line p-3 font-bold uppercase text-xs tracking-wider outline-none focus:border-brand appearance-none">
+                          <option value="" disabled>-- Scegli --</option>
+                          {attrezzi.map(a => <option key={`ugc-a-${a.id_attrezzo ?? a.id}`} value={a.id_attrezzo ?? a.id}>{a.nome}</option>)}
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-1 mt-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-main">Nome Inglese <span className="text-muted lowercase">(Opzionale per auto-sync GIF)</span></label>
+                        <input 
+                          type="text" 
+                          value={ugcNomeInglese} 
+                          onChange={(e) => setUgcNomeInglese(e.target.value)} 
+                          placeholder="Es. Cable Flyes"
+                          className="w-full bg-surface border-2 border-line p-3 font-bold text-xs outline-none focus:border-brand placeholder:text-muted/50"
+                        />
+                      </div>
+                    </div>
+
+                    <button 
+                      onClick={handleCreateUGCExercise}
+                      disabled={!ugcMuscleId || !ugcEquipmentId || isCreatingUGC}
+                      className="w-full mt-4 py-4 bg-brand border-2 border-line text-base font-black uppercase tracking-widest shadow-[4px_4px_0px_#000000] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none transition-all disabled:opacity-40 flex justify-center items-center gap-2 outline-none"
+                    >
+                      {isCreatingUGC ? <CleanSpinner size={20} /> : <><Plus size={20} strokeWidth={3} /> CREA E USA ORA</>}
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -485,11 +671,9 @@ export default function DayEditorPage() {
         </div>
       )}
 
-      {/* MODALE DETTAGLIO ESERCIZIO */}
       {isDetailSheetOpen && selectedExercise && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex flex-col justify-end">
-          <div className="bg-base w-full border-t-4 border-line p-8 flex flex-col gap-8 pb-12 shadow-[0px_-12px_0px_rgba(0,0,0,1)] dark:shadow-[0px_-12px_0px_rgba(128,76,217,1)] animate-in slide-in-from-bottom-full duration-200">
-            
+          <div className="bg-base w-full border-t-4 border-line p-8 flex flex-col gap-8 pb-12 shadow-[0px_-12px_0px_rgba(0,0,0,1)] animate-in slide-in-from-bottom-full duration-200">
             <div className="flex flex-col gap-1">
               <span className="text-[10px] font-black text-brand uppercase tracking-widest border-2 border-brand bg-brand/10 w-fit px-2 py-1 mb-2">{editingId ? "Modifica" : "Aggiungi"}</span>
               <h2 className="font-heading text-3xl font-black text-main uppercase tracking-tighter leading-none">{selectedExercise.nome}</h2>
@@ -500,63 +684,37 @@ export default function DayEditorPage() {
                  <label className="text-xs text-muted uppercase font-black tracking-widest">Unità di Misura</label>
                  <div className="flex gap-2">
                    {["KG", "LBS"].map((unit) => (
-                     <button 
-                       key={unit} 
-                       onClick={() => setUnitaMisura(unit)} 
-                       className={`flex-1 p-4 font-black uppercase border-2 border-line transition-all outline-none ${
-                         unitaMisura === unit 
-                         ? 'bg-main text-base shadow-[4px_4px_0px_#000000] dark:shadow-[4px_4px_0px_#804CD9] translate-x-[-2px] translate-y-[-2px]' 
-                         : 'bg-surface text-main hover:bg-base'
-                       }`}
-                     >
-                       {unit}
-                     </button>
+                     <button key={unit} onClick={() => setUnitaMisura(unit)} className={`flex-1 p-4 font-black uppercase border-2 border-line transition-all outline-none ${unitaMisura === unit ? 'bg-main text-base shadow-[4px_4px_0px_#000000] translate-x-[-2px] translate-y-[-2px]' : 'bg-surface text-main hover:bg-base'}`}>{unit}</button>
                    ))}
                  </div>
               </div>
 
               <div className="flex flex-col gap-2">
                  <label className="text-xs text-muted uppercase font-black tracking-widest">Serie</label>
-                 <input type="number" value={serie} onChange={(e) => setSerie(e.target.value)} className="bg-surface border-2 border-line p-4 text-main font-bold outline-none focus:bg-base focus:shadow-[4px_4px_0px_#000000] dark:focus:shadow-[4px_4px_0px_#804CD9] transition-all" />
+                 <input type="number" value={serie} onChange={(e) => setSerie(e.target.value)} className="bg-surface border-2 border-line p-4 text-main font-bold outline-none focus:bg-base focus:shadow-[4px_4px_0px_#000000] transition-all" />
               </div>
               <div className="flex flex-col gap-2">
                  <label className="text-xs text-muted uppercase font-black tracking-widest">Ripetizioni</label>
-                 <input type="number" value={ripetizioni} onChange={(e) => setRipetizioni(e.target.value)} className="bg-surface border-2 border-line p-4 text-main font-bold outline-none focus:bg-base focus:shadow-[4px_4px_0px_#000000] dark:focus:shadow-[4px_4px_0px_#804CD9] transition-all" />
+                 <input type="number" value={ripetizioni} onChange={(e) => setRipetizioni(e.target.value)} className="bg-surface border-2 border-line p-4 text-main font-bold outline-none focus:bg-base focus:shadow-[4px_4px_0px_#000000] transition-all" />
               </div>
               <div className="flex flex-col gap-2">
                  <label className="text-xs text-muted uppercase font-black tracking-widest">Recupero (secondi)</label>
-                 <input type="number" value={recupero} onChange={(e) => setRecupero(e.target.value)} className="bg-surface border-2 border-line p-4 text-main font-bold outline-none focus:bg-base focus:shadow-[4px_4px_0px_#000000] dark:focus:shadow-[4px_4px_0px_#804CD9] transition-all" />
+                 <input type="number" value={recupero} onChange={(e) => setRecupero(e.target.value)} className="bg-surface border-2 border-line p-4 text-main font-bold outline-none focus:bg-base focus:shadow-[4px_4px_0px_#000000] transition-all" />
               </div>
             </div>
 
             <div className="flex gap-4 mt-4">
-              <button onClick={() => { setIsDetailSheetOpen(false); setEditingId(null); setUnitaMisura("KG"); }} className="flex-1 p-5 bg-surface border-2 border-line text-main font-black uppercase tracking-widest shadow-[4px_4px_0px_#000000] dark:shadow-[4px_4px_0px_#804CD9] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none transition-all">
-                 Annulla
-              </button>
-              <button onClick={handleSaveExercise} className="flex-1 p-5 bg-brand border-2 border-line text-base font-black uppercase tracking-widest shadow-[4px_4px_0px_#000000] dark:shadow-[4px_4px_0px_#804CD9] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none transition-all flex justify-center items-center">
-                 {isSaving ? <CleanSpinner size={24} /> : "CONFERMA"}
-              </button>
+              <button onClick={() => { setIsDetailSheetOpen(false); setEditingId(null); setUnitaMisura("KG"); }} className="flex-1 p-5 bg-surface border-2 border-line text-main font-black uppercase tracking-widest shadow-[4px_4px_0px_#000000] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none transition-all">Annulla</button>
+              <button onClick={handleSaveExercise} className="flex-1 p-5 bg-brand border-2 border-line text-base font-black uppercase tracking-widest shadow-[4px_4px_0px_#000000] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none transition-all flex justify-center items-center">{isSaving ? <CleanSpinner size={24} /> : "CONFERMA"}</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODALE ANTEPRIMA GIF */}
       {previewGif && (
-        <div 
-          className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-center justify-center p-6 animate-in fade-in duration-200"
-          onClick={() => setPreviewGif(null)} 
-        >
-          <div 
-            className="relative w-full max-w-sm bg-white border-4 border-line shadow-[12px_12px_0px_#000000] dark:shadow-[12px_12px_0px_#804CD9] p-2"
-            onClick={(e) => e.stopPropagation()} 
-          >
-            <button 
-              onClick={() => setPreviewGif(null)}
-              className="absolute -top-5 -right-5 w-12 h-12 bg-[#ff331f] border-4 border-line flex items-center justify-center shadow-[4px_4px_0px_#000000] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
-            >
-              <X size={28} strokeWidth={4} className="text-white" />
-            </button>
+        <div onClick={() => setPreviewGif(null)} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-center justify-center p-6 animate-in fade-in duration-200">
+          <div onClick={(e) => e.stopPropagation()} className="relative w-full max-w-sm bg-white border-4 border-line shadow-[12px_12px_0px_#000000] p-2">
+            <button onClick={() => setPreviewGif(null)} className="absolute -top-5 -right-5 w-12 h-12 bg-[#ff331f] border-4 border-line flex items-center justify-center shadow-[4px_4px_0px_#000000] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"><X size={28} strokeWidth={4} className="text-white" /></button>
             <img src={previewGif} alt="Esercizio Ingrandito" className="w-full h-auto object-contain bg-white" />
           </div>
         </div>

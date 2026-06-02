@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Trophy, BarChart3, ListOrdered, Zap, Coffee, Trash2, CheckCircle2, Clock, Ghost } from "lucide-react";
+import { ChevronLeft, Trophy, BarChart3, ListOrdered, Zap, Coffee, Trash2, CheckCircle2, Clock, Ghost, TrendingUp, AlertCircle } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 
 const LOCAL_STORAGE_KEY = "gymking_active_workout";
@@ -17,10 +17,21 @@ const CleanSpinner = ({ size = 24 }: { size?: number }) => {
   );
 };
 
-type SetData = { reps: string; weight: string; completed: boolean; workDurationSec?: number | null; actualRestSec?: number | null; wasteDurationSec?: number | null; completedAt?: number; };
-type ExerciseLog = { id_scheda_esercizio?: number; id_esercizio: number; nome: string; recupero_sec: number; sets: SetData[]; };
+type SetData = { id: string; reps: string; weight: string; completed: boolean; workDurationSec?: number | null; actualRestSec?: number | null; wasteDurationSec?: number | null; completedAt?: number; };
+type ExerciseLog = { id_scheda_esercizio?: number; id_esercizio: number; nome: string; recupero_sec: number; unita_misura: string; sets: SetData[]; };
 
-// === GRAFICO MACRO A CIAMBELLA (TOTALI DI SESSIONE) ===
+// === ICONA SVG COPPA BRUTALISTA (Sostituisce Emoji) ===
+const SvgTrophy = ({ size = 10 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+    <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
+    <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
+    <path d="M4 22h16" />
+    <path d="M10 14.66V17c0 .55-.45 1-1 1H4v2h16v-2h-5c-.55 0-1-.45-1-1v-2.34" />
+    <path d="M12 2a6 6 0 0 1 6 6v5a6 6 0 0 1-6 6 6 6 0 0 1-6-6V8a6 6 0 0 1 6-6z" />
+  </svg>
+);
+
+// === GRAFICO MACRO A CIAMBELLA ===
 const MacroDonutChart = ({ exercises, totalSessionTime }: { exercises: ExerciseLog[], totalSessionTime: number }) => {
   const size = 400;
   const center = size / 2;
@@ -88,7 +99,6 @@ const MacroDonutChart = ({ exercises, totalSessionTime }: { exercises: ExerciseL
   return (
     <div className="flex flex-col items-center bg-surface border-4 border-line p-6 shadow-[8px_8px_0px_#000000] relative w-full h-full">
       <h3 className="font-heading text-2xl font-black uppercase text-main tracking-tighter mb-4 border-b-4 border-line pb-2 w-full text-center">Efficienza Macro</h3>
-      
       <div className="relative w-full max-w-[300px] flex items-center justify-center flex-1">
         <svg viewBox={`0 0 ${size} ${size}`} className="w-full drop-shadow-md">
           {slices.map((slice, i) => slice.value > 0 && (
@@ -96,13 +106,11 @@ const MacroDonutChart = ({ exercises, totalSessionTime }: { exercises: ExerciseL
           ))}
           <circle cx={center} cy={center} r={innerRadius} fill="var(--color-surface)" stroke="var(--color-line)" strokeWidth="4" />
         </svg>
-
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none mt-2">
           <span className="text-[10px] font-black uppercase tracking-widest text-muted">Totale</span>
           <span className="font-heading text-4xl font-black text-main leading-none tabular-nums mt-1">{formatTime(totalSessionTime)}</span>
         </div>
       </div>
-
       <div className="flex flex-col w-full gap-2 mt-6 text-[10px] font-black uppercase tracking-tighter bg-base p-4 border-2 border-line">
         <div className="flex items-center justify-between"><div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#ccff00] border-2 border-line shrink-0"></div><Zap size={12} className="text-muted"/> Sforzo</div><span className="text-main tabular-nums">{formatTime(tut)} <span className="text-muted ml-1">({Math.round((tut/total)*100)}%)</span></span></div>
         <div className="flex items-center justify-between"><div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#ffde59] border-2 border-line shrink-0"></div><Coffee size={12} className="text-muted"/> Pause</div><span className="text-main tabular-nums">{formatTime(rest)} <span className="text-muted ml-1">({Math.round((rest/total)*100)}%)</span></span></div>
@@ -113,7 +121,7 @@ const MacroDonutChart = ({ exercises, totalSessionTime }: { exercises: ExerciseL
   );
 };
 
-// === COMPONENTE GRAFICO NIGHTINGALE ROSE (MICRO DISTRIBUZIONE) ===
+// === COMPONENTE GRAFICO NIGHTINGALE CON LEGENDA INTEGRATA ===
 const NightingaleRoseChart = ({ exercises }: { exercises: ExerciseLog[] }) => {
   const size = 600; 
   const center = size / 2; 
@@ -124,27 +132,19 @@ const NightingaleRoseChart = ({ exercises }: { exercises: ExerciseLog[] }) => {
       const work = ex.sets.reduce((acc, s) => acc + (s.workDurationSec || 0), 0);
       const rest = ex.sets.reduce((acc, s) => acc + (s.actualRestSec || 0), 0);
       const waste = ex.sets.reduce((acc, s) => acc + (s.wasteDurationSec || 0), 0);
-      
       const totalSets = ex.sets.length;
       const completedSets = ex.sets.filter(s => s.completed).length;
-      
       let realTotal = work + rest + waste;
       let missingTime = 0;
-
       if (completedSets > 0 && completedSets < totalSets) {
         missingTime = realTotal * ((totalSets - completedSets) / completedSets);
       }
-
       const total = realTotal + missingTime;
-      
       return { 
         id: (ex.id_scheda_esercizio || ex.id_esercizio) + Math.random().toString(),
-        nome: ex.nome, 
-        work, rest, waste, missingTime, total, 
-        isSkipped: completedSets === 0 
+        nome: ex.nome, work, rest, waste, missingTime, total, isSkipped: completedSets === 0 
       };
     });
-
     const maxTotal = Math.max(...aggregated.map(d => d.total), 1); 
     return { chartData: aggregated, maxTotalTime: maxTotal };
   }, [exercises]);
@@ -167,26 +167,19 @@ const NightingaleRoseChart = ({ exercises }: { exercises: ExerciseLog[] }) => {
   return (
     <div className="flex flex-col items-center bg-surface border-4 border-line p-6 shadow-[8px_8px_0px_#000000] relative w-full h-full">
       <h3 className="font-heading text-2xl font-black uppercase text-main tracking-tighter mb-4 border-b-4 border-line pb-2 w-full text-center">Micro Distribuzione</h3>
-
       <div className="flex-1 flex items-center justify-center w-full">
         <svg viewBox={`0 0 ${size} ${size}`} className="w-full max-w-[450px] drop-shadow-md">
           <circle cx={center} cy={center} r={chartRadius} fill="none" stroke="var(--color-line)" strokeOpacity="0.2" strokeWidth="1.5" strokeDasharray="5 5" />
           <circle cx={center} cy={center} r={chartRadius * 0.66} fill="none" stroke="var(--color-line)" strokeOpacity="0.2" strokeWidth="1" strokeDasharray="5 5" />
           <circle cx={center} cy={center} r={chartRadius * 0.33} fill="none" stroke="var(--color-line)" strokeOpacity="0.2" strokeWidth="1" strokeDasharray="5 5" />
-
           {chartData.map((d, i) => {
             const startAngle = i * angleStep - Math.PI / 2;
             const endAngle = (i + 1) * angleStep - Math.PI / 2;
             const midAngle = startAngle + angleStep / 2; 
-
             const textRadius = chartRadius + 25; 
             let rotation = (midAngle * 180) / Math.PI;
             let anchor: "start" | "end" = "start";
-            
-            if (rotation > 90 || rotation < -90) {
-              rotation += 180;
-              anchor = "end";
-            }
+            if (rotation > 90 || rotation < -90) { rotation += 180; anchor = "end"; }
             const tx = center + textRadius * Math.cos(midAngle);
             const ty = center + textRadius * Math.sin(midAngle);
             const shortName = d.nome.length > 14 ? d.nome.substring(0, 13) + '.' : d.nome;
@@ -195,9 +188,7 @@ const NightingaleRoseChart = ({ exercises }: { exercises: ExerciseLog[] }) => {
               return (
                 <g key={d.id}>
                   <path d={generateArcPath(startAngle, endAngle, chartRadius * 0.15)} fill="#94a3b8" stroke="var(--color-line)" strokeWidth="1.5" />
-                  <text x={tx} y={ty} transform={`rotate(${rotation}, ${tx}, ${ty})`} textAnchor={anchor} alignmentBaseline="middle" fontSize="14" fontWeight="900" fontFamily="sans-serif" className="uppercase tracking-tighter fill-muted/50">
-                    {shortName}
-                  </text>
+                  <text x={tx} y={ty} transform={`rotate(${rotation}, ${tx}, ${ty})`} textAnchor={anchor} alignmentBaseline="middle" fontSize="14" fontWeight="900" fontFamily="sans-serif" className="uppercase tracking-tighter fill-muted/50">{shortName}</text>
                 </g>
               );
             }
@@ -213,14 +204,31 @@ const NightingaleRoseChart = ({ exercises }: { exercises: ExerciseLog[] }) => {
                 <path d={generateArcPath(startAngle, endAngle, rRealTotal)} fill="#ff331f" stroke="var(--color-line)" strokeWidth="1.5" /> 
                 <path d={generateArcPath(startAngle, endAngle, rRestWork)} fill="#ffde59" stroke="var(--color-line)" strokeWidth="1.5" /> 
                 <path d={generateArcPath(startAngle, endAngle, rWork)} fill="#ccff00" stroke="var(--color-line)" strokeWidth="1.5" /> 
-
-                <text x={tx} y={ty} transform={`rotate(${rotation}, ${tx}, ${ty})`} textAnchor={anchor} alignmentBaseline="middle" fontSize="14" fontWeight="900" fontFamily="sans-serif" className="uppercase tracking-tighter fill-main">
-                  {shortName}
-                </text>
+                <text x={tx} y={ty} transform={`rotate(${rotation}, ${tx}, ${ty})`} textAnchor={anchor} alignmentBaseline="middle" fontSize="14" fontWeight="900" fontFamily="sans-serif" className="uppercase tracking-tighter fill-main">{shortName}</text>
               </g>
             );
           })}
         </svg>
+      </div>
+
+      {/* LEGENDA DEL GRAFICO A ROSA (NIGHTINGALE) */}
+      <div className="flex flex-col w-full gap-2 mt-6 text-[10px] font-black uppercase tracking-tighter bg-base p-4 border-2 border-line">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#ccff00] border-2 border-line shrink-0"></div>Sforzo (TUT)</div>
+          <span className="text-muted font-bold text-[9px]">Centro</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#ffde59] border-2 border-line shrink-0"></div>Recupero Effettivo</div>
+          <span className="text-muted font-bold text-[9px]">Strato 2</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#ff331f] border-2 border-line shrink-0"></div>Sforamento Pause</div>
+          <span className="text-muted font-bold text-[9px]">Strato 3</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#94a3b8] border-2 border-line shrink-0"></div>Stima Serie Mancanti</div>
+          <span className="text-muted font-bold text-[9px]">Esterno</span>
+        </div>
       </div>
     </div>
   );
@@ -234,32 +242,130 @@ export default function WorkoutSummaryPage() {
   const [totalTime, setTotalTime] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<"riepilogo" | "analisi">("riepilogo");
   const [isSaving, setIsSaving] = useState(false);
+  const [isProcessingStats, setIsProcessingStats] = useState(true);
 
-  // Stato per la gestione dello swipe
+  const [currentVolume, setCurrentVolume] = useState<number>(0);
+  const [volumeDeltaPct, setVolumeDeltaPct] = useState<number | null>(null);
+  const [setPRs, setSetPRs] = useState<Record<string, string[]>>({});
+
   const [chartPage, setChartPage] = useState<number>(0);
   const swipeRef = useRef({ startX: 0 });
 
   useEffect(() => {
     const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      setWorkoutName(parsed.workoutName || "Allenamento");
-      setExercises(parsed.exercises || []);
-      setStartTime(parsed.startTime || null);
-      
-      if (parsed.startTime) {
-        if (parsed.endTime) {
-          setTotalTime(Math.floor((parsed.endTime - parsed.startTime) / 1000));
-        } else {
-          const currentEnd = Date.now();
-          setTotalTime(Math.floor((currentEnd - parsed.startTime) / 1000));
-          parsed.endTime = currentEnd;
-          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(parsed));
-        }
-      }
-    } else {
+    if (!saved) {
       router.push("/start-workout");
+      return;
     }
+    
+    const parsed = JSON.parse(saved);
+    setWorkoutName(parsed.workoutName || "Allenamento");
+    setExercises(parsed.exercises || []);
+    setStartTime(parsed.startTime || null);
+    
+    if (parsed.startTime) {
+      if (parsed.endTime) {
+        setTotalTime(Math.floor((parsed.endTime - parsed.startTime) / 1000));
+      } else {
+        const currentEnd = Date.now();
+        setTotalTime(Math.floor((currentEnd - parsed.startTime) / 1000));
+        parsed.endTime = currentEnd;
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(parsed));
+      }
+    }
+
+    const analyzeData = async () => {
+      try {
+        let currentVol = 0;
+        parsed.exercises?.forEach((ex: any) => {
+          ex.sets?.forEach((s: any) => {
+            if (s.completed) {
+              const w = parseFloat(s.weight) || 0;
+              const r = parseInt(s.reps) || 0;
+              currentVol += (w * r);
+            }
+          });
+        });
+        setCurrentVolume(currentVol);
+
+        if (parsed.dayId) {
+          const { data: lastSess } = await supabase
+            .from('Storico_Allenamenti')
+            .select('id_sessione, Storico_Serie(weight, reps)')
+            .eq('id_giorno', parsed.dayId)
+            .order('inizio_ts', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (lastSess && lastSess.Storico_Serie && lastSess.Storico_Serie.length > 0) {
+            const lastVol = lastSess.Storico_Serie.reduce((acc: number, s: any) => acc + ((parseFloat(s.weight) || 0) * (parseInt(s.reps) || 0)), 0);
+            if (lastVol > 0) {
+              setVolumeDeltaPct(Math.round(((currentVol - lastVol) / lastVol) * 100));
+            }
+          }
+        }
+
+        const exIds = parsed.exercises?.map((e: any) => e.id_esercizio) || [];
+        if (exIds.length > 0) {
+          const { data: history } = await supabase
+            .from('Storico_Serie')
+            .select('id_esercizio, weight, reps')
+            .in('id_esercizio', exIds);
+
+          const baselines: Record<number, { maxW: number, max1RM: number, maxRepsByW: Record<number, number> }> = {};
+          history?.forEach(row => {
+            const w = parseFloat(row.weight) || 0;
+            const r = parseInt(row.reps) || 0;
+            const id = row.id_esercizio;
+            const e1rm = w * (1 + r / 30);
+            
+            if (!baselines[id]) baselines[id] = { maxW: 0, max1RM: 0, maxRepsByW: {} };
+            if (w > baselines[id].maxW) baselines[id].maxW = w;
+            if (e1rm > baselines[id].max1RM) baselines[id].max1RM = e1rm;
+            if (r > (baselines[id].maxRepsByW[w] || 0)) baselines[id].maxRepsByW[w] = r;
+          });
+
+          const newPrs: Record<string, string[]> = {};
+          parsed.exercises?.forEach((ex: any) => {
+            const id = ex.id_esercizio;
+            ex.sets?.forEach((set: any) => {
+              if (!set.completed) return;
+              const w = parseFloat(set.weight) || 0;
+              const r = parseInt(set.reps) || 0;
+              if (w === 0 || r === 0) return; 
+
+              if (!baselines[id]) baselines[id] = { maxW: 0, max1RM: 0, maxRepsByW: {} };
+
+              const prList: string[] = [];
+              const e1rm = w * (1 + r / 30);
+              let isNewMaxW = false;
+
+              const hasHistory = baselines[id].maxW > 0 || baselines[id].max1RM > 0;
+
+              if (hasHistory) {
+                if (w > baselines[id].maxW) { prList.push("Max KG"); isNewMaxW = true; }
+                if (e1rm > baselines[id].max1RM) { prList.push("New 1RM"); }
+                if (r > (baselines[id].maxRepsByW[w] || 0) && !isNewMaxW) { prList.push("Max Reps"); }
+              }
+
+              if (w > baselines[id].maxW) baselines[id].maxW = w;
+              if (e1rm > baselines[id].max1RM) baselines[id].max1RM = e1rm;
+              if (r > (baselines[id].maxRepsByW[w] || 0)) baselines[id].maxRepsByW[w] = r;
+
+              if (prList.length > 0) newPrs[set.id] = prList;
+            });
+          });
+          setSetPRs(newPrs);
+        }
+
+      } catch (err) {
+        console.error("Errore analisi metriche:", err);
+      } finally {
+        setIsProcessingStats(false);
+      }
+    };
+
+    analyzeData();
   }, [router]);
 
   const startDateTime = useMemo(() => {
@@ -322,17 +428,21 @@ export default function WorkoutSummaryPage() {
 
       parsed.exercises.forEach((ex: ExerciseLog) => {
         let hasValidSets = false;
-        
         ex.sets.forEach((set: SetData, idx: number) => {
           if (set.completed) {
             hasValidSets = true;
+            const isFictionalId = ex.id_scheda_esercizio && ex.id_scheda_esercizio > 100000;
+            const validSchedaEsercizioId = (!isFictionalId && ex.id_scheda_esercizio) ? ex.id_scheda_esercizio : null;
+
             payloadSerie.push({
               id_sessione: idSessione,
               id_esercizio: ex.id_esercizio,
+              id_scheda_esercizio: validSchedaEsercizioId,
               ordine_esercizio: ord_es,
               ordine_serie: idx + 1,
               reps: set.reps,
               weight: set.weight,
+              unita_misura: ex.unita_misura || 'KG', 
               work_duration_sec: set.workDurationSec || 0,
               actual_rest_sec: set.actualRestSec || 0,
               waste_duration_sec: set.wasteDurationSec || 0,
@@ -340,7 +450,6 @@ export default function WorkoutSummaryPage() {
             });
           }
         });
-        
         if (hasValidSets) ord_es++;
       });
 
@@ -376,32 +485,50 @@ export default function WorkoutSummaryPage() {
       </div>
 
       <div className="w-full max-w-2xl flex border-4 border-line mb-8 bg-surface shadow-[4px_4px_0px_#000000] overflow-hidden">
-        <button 
-          onClick={() => setActiveTab("riepilogo")}
-          className={`flex-1 py-4 flex items-center justify-center gap-2.5 font-black uppercase tracking-widest text-xs transition-all outline-none ${activeTab === "riepilogo" ? 'bg-main text-base' : 'bg-surface text-main hover:bg-base/50'}`}
-        >
-          <ListOrdered size={18} /> Riepilogo
-        </button>
-        <button 
-          onClick={() => setActiveTab("analisi")}
-          className={`flex-1 py-4 flex items-center justify-center gap-2.5 font-black uppercase tracking-widest text-xs transition-all outline-none ${activeTab === "analisi" ? 'bg-main text-base' : 'bg-surface text-main hover:bg-base/50'}`}
-        >
-          <BarChart3 size={18} /> Analisi Tempi
-        </button>
+        <button onClick={() => setActiveTab("riepilogo")} className="flex-1 py-4 flex items-center justify-center gap-2.5 font-black uppercase tracking-widest text-xs transition-all outline-none bg-main text-base"><ListOrdered size={18} /> Riepilogo</button>
+        <button onClick={() => setActiveTab("analisi")} className="flex-1 py-4 flex items-center justify-center gap-2.5 font-black uppercase tracking-widest text-xs transition-all outline-none bg-surface text-main hover:bg-base/50"><BarChart3 size={18} /> Analisi Tempi</button>
       </div>
 
       <div className="w-full max-w-2xl flex-1">
         {activeTab === "riepilogo" ? (
           <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4">
             
-            <div className="bg-surface border-4 border-line p-4 shadow-[6px_6px_0px_#000000] flex justify-between items-center text-main">
-              <div className="flex items-center gap-2">
-                <Clock className="text-brand" size={24} strokeWidth={3} />
-                <span className="font-heading text-lg font-black uppercase tracking-tight leading-none pt-1">Tempo<br/>Totale</span>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-surface border-4 border-line p-4 shadow-[6px_6px_0px_#000000] flex justify-between items-center text-main">
+                <div className="flex items-center gap-2">
+                  <Clock className="text-brand" size={24} strokeWidth={3} />
+                  <span className="font-heading text-lg font-black uppercase tracking-tight leading-none pt-1">Tempo<br/>Totale</span>
+                </div>
+                <span className="font-mono text-xl font-black bg-brand text-base border-2 border-line px-4 py-2 shadow-[2px_2px_0px_#000000]">
+                  {formatTime(totalTime)}
+                </span>
               </div>
-              <span className="font-mono text-xl font-black bg-brand text-base border-2 border-line px-4 py-2 shadow-[2px_2px_0px_#000000]">
-                {formatTime(totalTime)}
-              </span>
+              
+              <div className="bg-surface border-4 border-line p-4 shadow-[6px_6px_0px_#000000] flex justify-between items-center text-main relative overflow-hidden">
+                {isProcessingStats && <div className="absolute inset-0 bg-surface/80 backdrop-blur-sm z-10 flex items-center justify-center"><CleanSpinner size={24}/></div>}
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="text-brand" size={24} strokeWidth={3} />
+                  <span className="font-heading text-lg font-black uppercase tracking-tight leading-none pt-1">Volume<br/>Load</span>
+                </div>
+                <div className="flex flex-col items-end">
+                  <span className="font-mono text-xl font-black bg-main text-base border-2 border-line px-4 py-2 shadow-[2px_2px_0px_#000000]">
+                    {currentVolume} KG
+                  </span>
+                  {volumeDeltaPct !== null && (
+                    <span className={`text-[10px] font-black uppercase tracking-widest mt-1.5 flex items-center gap-1 ${volumeDeltaPct > 0 ? 'text-emerald-500' : volumeDeltaPct < 0 ? 'text-red-500' : 'text-muted'}`}>
+                      {/* FRECCE VETTORIALI SVG (No Emojis) */}
+                      {volumeDeltaPct > 0 ? (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="inline-block"><path d="m5 12 7-7 7 7M12 5v14"/></svg>
+                      ) : volumeDeltaPct < 0 ? (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="inline-block"><path d="m19 12-7 7-7-7M12 19V5"/></svg>
+                      ) : (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="inline-block"><path d="M5 12h14"/></svg>
+                      )}
+                      {volumeDeltaPct > 0 ? '+' : ''}{volumeDeltaPct}% vs Ultima
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
 
             {(() => {
@@ -423,7 +550,7 @@ export default function WorkoutSummaryPage() {
 
                 if (!isCompleted) {
                   return (
-                    <div key={idx} className="bg-surface border-4 border-line shadow-[4px_4px_0px_#000000] overflow-hidden opacity-30 select-none transition-opacity">
+                    <div key={idx} className="bg-surface border-4 border-line shadow-[4px_4px_0px_#000000] overflow-hidden opacity-30 select-none">
                       <div className="bg-black text-white p-3 flex justify-between items-center border-b-2 border-line">
                         <span className="font-heading text-lg font-black uppercase truncate max-w-[70%]">{ex.nome}</span>
                         <span className="text-[9px] font-black uppercase tracking-widest border border-white/30 px-2 py-0.5 bg-white/10">Saltato</span>
@@ -441,12 +568,29 @@ export default function WorkoutSummaryPage() {
                         {formatTime(exTotalTime)}
                       </div>
                     </div>
-                    <div className="p-4 flex flex-wrap gap-2.5 bg-base/50">
-                      {completedSets.map((set, sIdx) => (
-                        <div key={sIdx} className="bg-surface text-main border-2 border-line px-3 py-1 font-bold text-sm shadow-[2px_2px_0px_#000000]">
-                          {set.weight}kg x {set.reps}
-                        </div>
-                      ))}
+                    
+                    <div className="p-4 flex flex-col gap-3 bg-base/50">
+                      {completedSets.map((set, sIdx) => {
+                        const tags = setPRs[set.id] || [];
+                        return (
+                          <div key={sIdx} className="flex flex-wrap items-center gap-3">
+                            <div className="bg-surface text-main border-2 border-line px-3 py-1 font-bold text-sm shadow-[2px_2px_0px_#000000] shrink-0">
+                              {set.weight}{ex.unita_misura || 'KG'} x {set.reps}
+                            </div>
+                            
+                            {/* TAG DELLE MEDAGLIE CON SVG (No Emojis) */}
+                            {tags.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5">
+                                {tags.map((tag, tIdx) => (
+                                  <span key={tIdx} className="text-[9px] font-black uppercase tracking-widest bg-[#ffde59] text-black px-1.5 py-0.5 border-2 border-black shadow-[2px_2px_0px_#000000] rotate-[-2deg] flex items-center gap-1">
+                                    <SvgTrophy size={10} /> {tag}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 );
@@ -462,28 +606,11 @@ export default function WorkoutSummaryPage() {
               if (deltaX > 40 && chartPage === 0) setChartPage(1);
               else if (deltaX < -40 && chartPage === 1) setChartPage(0);
             }}
-            onMouseDown={(e) => { swipeRef.current.startX = e.clientX; }}
-            onMouseUp={(e) => {
-              const deltaX = swipeRef.current.startX - e.clientX;
-              if (deltaX > 40 && chartPage === 0) setChartPage(1);
-              else if (deltaX < -40 && chartPage === 1) setChartPage(0);
-            }}
           >
-            <div 
-              className="flex w-full transition-transform duration-300 ease-out"
-              style={{ transform: `translateX(-${chartPage * 100}%)` }}
-            >
-              {/* Pagina 1: Micro (Nightingale) */}
-              <div className="w-full shrink-0 flex items-stretch select-none px-1">
-                <NightingaleRoseChart exercises={exercises} />
-              </div>
-              {/* Pagina 2: Macro (Donut) */}
-              <div className="w-full shrink-0 flex items-stretch select-none px-1">
-                <MacroDonutChart exercises={exercises} totalSessionTime={totalTime} />
-              </div>
+            <div className="flex w-full transition-transform duration-300 ease-out" style={{ transform: `translateX(-${chartPage * 100}%)` }}>
+              <div className="w-full shrink-0 flex items-stretch select-none px-1"><NightingaleRoseChart exercises={exercises} /></div>
+              <div className="w-full shrink-0 flex items-stretch select-none px-1"><MacroDonutChart exercises={exercises} totalSessionTime={totalTime} /></div>
             </div>
-
-            {/* Indicatori Paginazione */}
             <div className="flex justify-center items-center gap-3 mt-6 mb-2">
               <button onClick={() => setChartPage(0)} className={`w-3 h-3 rounded-full transition-colors border-2 border-line ${chartPage === 0 ? 'bg-brand' : 'bg-surface'}`} />
               <button onClick={() => setChartPage(1)} className={`w-3 h-3 rounded-full transition-colors border-2 border-line ${chartPage === 1 ? 'bg-brand' : 'bg-surface'}`} />
@@ -494,17 +621,12 @@ export default function WorkoutSummaryPage() {
 
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-base/80 backdrop-blur-md border-t-4 border-line z-50">
         <div className="max-w-2xl mx-auto flex gap-4">
-          <button onClick={handleGoBack} disabled={isSaving} className="p-4 bg-surface border-4 border-line shadow-[4px_4px_0px_#000000] hover:bg-base transition-colors active:translate-x-[2px] active:translate-y-[2px] active:shadow-none text-main outline-none"><ChevronLeft/></button>
-          <button 
-            onClick={handleFinalSave}
-            disabled={isSaving}
-            className="flex-1 py-4 bg-brand border-4 border-line text-base font-black uppercase tracking-widest shadow-[4px_4px_0px_#000000] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed outline-none"
-          >
+          <button onClick={handleGoBack} disabled={isSaving} className="p-4 bg-surface border-4 border-line shadow-[4px_4px_0px_#000000] hover:bg-base text-main outline-none"><ChevronLeft/></button>
+          <button onClick={handleFinalSave} disabled={isSaving} className="flex-1 py-4 bg-brand border-4 border-line text-base font-black uppercase tracking-widest shadow-[4px_4px_0px_#000000] flex items-center justify-center gap-2 disabled:opacity-70 outline-none">
             {isSaving ? <CleanSpinner size={20}/> : <><CheckCircle2 size={20}/> CONFERMA E SALVA</>}
           </button>
         </div>
       </div>
-
     </main>
   );
 }

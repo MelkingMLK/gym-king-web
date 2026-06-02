@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, Check, Trophy, Plus, MoreHorizontal, PlayCircle, ChevronDown, CheckCircle, Trash2, X, AlertCircle, History, Dumbbell, Search, ChevronRight } from "lucide-react";
+import { ChevronLeft, Check, Trophy, Plus, MoreHorizontal, PlayCircle, ChevronDown, CheckCircle, Trash2, X, AlertCircle, History, Dumbbell, Search, ChevronRight, FlaskConical } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import Fuse from "fuse.js";
 import { playSound } from "@/utils/audioEngine";
@@ -67,7 +67,7 @@ const CleanSpinner = ({ size = 24 }: { size?: number }) => {
 // === TIPI STRUTTURATI ===
 type SetData = { id: string; reps: string; weight: string; completed: boolean; workDurationSec?: number | null; actualRestSec?: number | null; wasteDurationSec?: number | null; completedAt?: number; pastWeight?: string; pastReps?: string; };
 type ExerciseLog = { id_scheda_esercizio?: number; id_esercizio: number; nome: string; gif_url?: string; recupero_sec: number; target_serie: number; target_reps: string; unita_misura: string; sets: SetData[]; };
-type EsercizioBase = { id_esercizio: number; id?: number; nome: string; gif_url?: string; };
+type EsercizioBase = { id_esercizio: number; id?: number; nome: string; gif_url?: string; is_approved?: boolean; user_id?: string; };
 type ActiveSet = { exIndex: number; setIndex: number; phase: 'prep' | 'work'; startPrepTime: number; startWorkTime: number | null; };
 type RestingSet = { exIndex: number; setIndex: number; startTs: number; }; 
 type Muscolo = { id_gruppo?: number; id?: number; nome: string; };
@@ -75,7 +75,7 @@ type Attrezzo = { id_attrezzo?: number; id?: number; nome: string; };
 type RelazioneMuscolo = { id_esercizio?: number; id_gruppo?: number; };
 type RelazioneAttrezzo = { id_esercizio?: number; id_attrezzo?: number; };
 
-// === FUNZIONE PRIVATA (NON ESPORTATA) ===
+// === FUNZIONE PRIVATA ===
 function WorkoutTrackerContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -102,7 +102,6 @@ function WorkoutTrackerContent() {
   
   const [swipedSetId, setSwipedSetId] = useState<string | null>(null);
 
-  // Cataloghi e Sostituzione Estesa
   const [tuttiEsercizi, setTuttiEsercizi] = useState<EsercizioBase[]>([]);
   const [muscoli, setMuscoli] = useState<Muscolo[]>([]);
   const [attrezzi, setAttrezzi] = useState<Attrezzo[]>([]);
@@ -110,7 +109,7 @@ function WorkoutTrackerContent() {
   const [relAttrezzi, setRelAttrezzi] = useState<RelazioneAttrezzo[]>([]);
 
   const [isOptionsModalOpen, setIsOptionsModalOpen] = useState(false);
-  const [isReplaceModalOpen, setIsReplaceModalOpen] = useState(false);
+  const [catalogMode, setCatalogMode] = useState<'add' | 'replace' | null>(null);
   const [focusedExIndex, setFocusedExIndex] = useState<number | null>(null);
   const [searchText, setSearchText] = useState("");
   const [previewExercise, setPreviewExercise] = useState<ExerciseLog | null>(null);
@@ -120,11 +119,16 @@ function WorkoutTrackerContent() {
   const [selectedMuscles, setSelectedMuscles] = useState<string[]>([]);
   const [selectedEquipment, setSelectedEquipment] = useState<string | null>(null);
 
-  // Storico Analitico
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [historyData, setHistoryData] = useState<any[]>([]);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [exerciseRecords, setExerciseRecords] = useState({ maxWeight: 0, maxWeightReps: 0, estimated1RM: 0 });
+
+  // === STATI UGC ===
+  const [isCreatingUGC, setIsCreatingUGC] = useState(false);
+  const [ugcMuscleId, setUgcMuscleId] = useState<string | null>(null);
+  const [ugcEquipmentId, setUgcEquipmentId] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const masterTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -157,16 +161,22 @@ function WorkoutTrackerContent() {
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [startTime, restEndTime]);
 
-  // Caricamento Dati e Ghosting
   useEffect(() => {
     async function loadWorkout() {
       setIsLoading(true);
       const savedData = localStorage.getItem(LOCAL_STORAGE_KEY);
       
-      // Idratazione dei cataloghi per i filtri di sostituzione (Punto Critico)
       try {
-        const { data: catData } = await supabase.from('Esercizi').select('id_esercizio, nome, gif_url').order('nome');
-        if (catData) setTuttiEsercizi(catData as EsercizioBase[]);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) setCurrentUserId(user.id);
+
+        let queryEsercizi = supabase.from('Esercizi').select('id_esercizio, nome, gif_url, is_approved, user_id').order('nome');
+        const { data: eData } = await queryEsercizi;
+        
+        if (eData) {
+          const validEsercizi = eData.filter(e => e.is_approved === true || e.user_id === user?.id);
+          setTuttiEsercizi(validEsercizi as EsercizioBase[]);
+        }
 
         const { data: mData } = await supabase.from('GruppiMuscolari').select('*').order('nome');
         if (mData) setMuscoli(mData as Muscolo[]);
@@ -181,7 +191,11 @@ function WorkoutTrackerContent() {
         }
         if (relMData) setRelMuscoli(relMData as RelazioneMuscolo[]);
 
-        const { data: relAData } = await supabase.from('Esercizio_Attrezzo').select('*');
+        let { data: relAData, error: relAErr } = await supabase.from('Esercizio_Attrezzo').select('*');
+        if (relAErr) {
+            const fallback = await supabase.from('esercizio_attrezzo').select('*');
+            relAData = fallback.data;
+        }
         if (relAData) setRelAttrezzi(relAData as RelazioneAttrezzo[]);
       } catch (err) { console.error("Errore fetch cataloghi:", err); }
 
@@ -194,7 +208,7 @@ function WorkoutTrackerContent() {
           setDayId(currentDayId);
           setTemplateId(currentTemplateId);
 
-          if (currentDayId === urlDayId || !urlDayId) {
+          if (currentDayId === urlDayId || (!urlDayId && parsed.workoutName === "Allenamento Libero")) {
             setWorkoutName(parsed.workoutName); 
             setExercises(parsed.exercises); 
             setStartTime(parsed.startTime); 
@@ -213,7 +227,13 @@ function WorkoutTrackerContent() {
         } catch (e) { console.error(e); }
       }
 
-      if (!urlDayId) { setIsLoading(false); return; }
+      if (!urlDayId) { 
+        setStartTime(Date.now());
+        setWorkoutName("Allenamento Libero");
+        setExercises([]);
+        setIsLoading(false); 
+        return; 
+      }
 
       setDayId(urlDayId);
       setTemplateId(urlTemplateId);
@@ -270,7 +290,6 @@ function WorkoutTrackerContent() {
     loadWorkout();
   }, [urlDayId, urlTemplateId]);
 
-  // Generazione Dati Analitici per la Modale Storico
   useEffect(() => {
     if (isHistoryModalOpen && focusedExIndex !== null) {
       const idEsercizio = exercises[focusedExIndex].id_esercizio;
@@ -300,7 +319,6 @@ function WorkoutTrackerContent() {
            const r = parseInt(row.reps) || 0;
 
            if (w > maxW) { maxW = w; repsAtMaxW = r; }
-           // Formula Epley rigorosa
            const oneRM = w * (1 + r / 30);
            if (oneRM > max1RM) max1RM = oneRM;
 
@@ -463,7 +481,6 @@ function WorkoutTrackerContent() {
     });
   };
   
-  // === LOGICA FILTRI VETTORIALE IDENTICA A DAY/[ID] ===
   const toggleMuscle = (id: string) => {
     setSelectedMuscles(prev => prev.includes(id) ? prev.filter(mId => mId !== id) : [...prev, id]);
   };
@@ -495,20 +512,74 @@ function WorkoutTrackerContent() {
     risultatiFinali = filtratiBase;
   }
 
-  const handleReplace = (nuovoEs: EsercizioBase) => {
-    if (focusedExIndex === null) return;
-    setExercises(prev => {
-      const next = [...prev];
-      next[focusedExIndex] = { ...next[focusedExIndex], id_esercizio: nuovoEs.id_esercizio, nome: nuovoEs.nome, gif_url: nuovoEs.gif_url };
-      return next;
-    });
-    setIsReplaceModalOpen(false);
+  // === MOTORE DI CREAZIONE UGC INTERNO AL WORKOUT ===
+  const handleCreateUGCExercise = async () => {
+    if (!searchText.trim() || !ugcMuscleId || !ugcEquipmentId || !currentUserId) return;
+    setIsCreatingUGC(true);
+    try {
+      const { data: newEx, error: exErr } = await supabase
+        .from('Esercizi')
+        .insert([{ nome: searchText.trim(), is_approved: false, user_id: currentUserId }])
+        .select().single();
+      
+      if (exErr || !newEx) throw exErr || new Error("Errore inserimento Esercizio");
+
+      const idEsercizio = newEx.id_esercizio ?? newEx.id;
+      
+      let { error: relMErr } = await supabase.from('Esercizio_Muscolo').insert([{ id_esercizio: idEsercizio, id_gruppo: Number(ugcMuscleId) }]);
+      if (relMErr) await supabase.from('esercizio_muscolo').insert([{ esercizio_id: idEsercizio, gruppo_id: Number(ugcMuscleId) }]);
+
+      let { error: relAErr } = await supabase.from('Esercizio_Attrezzo').insert([{ id_esercizio: idEsercizio, id_attrezzo: Number(ugcEquipmentId) }]);
+      if (relAErr) await supabase.from('esercizio_attrezzo').insert([{ esercizio_id: idEsercizio, attrezzo_id: Number(ugcEquipmentId) }]);
+
+      const exCreato: EsercizioBase = { id_esercizio: idEsercizio, nome: newEx.nome };
+      setTuttiEsercizi(prev => [...prev, exCreato]);
+      setRelMuscoli(prev => [...prev, { id_esercizio: idEsercizio, id_gruppo: Number(ugcMuscleId) }]);
+      setRelAttrezzi(prev => [...prev, { id_esercizio: idEsercizio, id_attrezzo: Number(ugcEquipmentId) }]);
+      
+      // Passa l'esercizio appena creato al gestore esistente del catalogo
+      handleCatalogSelect(exCreato);
+    } catch (error) {
+      console.error("Errore Creazione UGC:", error);
+      alert("Errore nella creazione dell'esercizio. Controlla la RLS sul database.");
+    } finally {
+      setIsCreatingUGC(false);
+    }
+  };
+
+  const handleCatalogSelect = (nuovoEs: EsercizioBase) => {
+    if (catalogMode === 'replace' && focusedExIndex !== null) {
+      setExercises(prev => {
+        const next = [...prev];
+        next[focusedExIndex] = { ...next[focusedExIndex], id_esercizio: nuovoEs.id_esercizio, nome: nuovoEs.nome, gif_url: nuovoEs.gif_url };
+        return next;
+      });
+    } else if (catalogMode === 'add') {
+      setExercises(prev => [
+        ...prev,
+        {
+          id_scheda_esercizio: Date.now(), 
+          id_esercizio: nuovoEs.id_esercizio,
+          nome: nuovoEs.nome,
+          gif_url: nuovoEs.gif_url,
+          recupero_sec: 90,
+          target_serie: 1,
+          target_reps: "10",
+          unita_misura: "KG",
+          sets: [{ id: Date.now().toString(), reps: "", weight: "", completed: false, pastWeight: "", pastReps: "" }]
+        }
+      ]);
+    }
+    
+    setCatalogMode(null);
     setFocusedExIndex(null);
     setSearchText("");
     setSelectedMuscles([]);
     setSelectedEquipment(null);
     setIsMuscoliOpen(false);
     setIsAttrezziOpen(false);
+    setUgcMuscleId(null);
+    setUgcEquipmentId(null);
   };
 
   const clearAndRedirect = () => { localStorage.removeItem(LOCAL_STORAGE_KEY); router.push("/start-workout"); };
@@ -564,132 +635,157 @@ function WorkoutTrackerContent() {
         </div>
       </div>
 
-      <div className="flex flex-col gap-8 p-4 mt-4">
-        {exercises.map((ex, exIndex) => {
-          const totalSets = ex.sets.length;
-          const completedCount = ex.sets.filter(s => s.completed).length;
-          
-          const isExCompleted = totalSets > 0 && completedCount === totalSets;
-          const isExPartial = completedCount > 0 && completedCount < totalSets && (!activeSet || activeSet.exIndex !== exIndex);
+      {exercises.length === 0 ? (
+        <div className="flex flex-col items-center justify-center mt-20 p-8 text-center gap-4 opacity-50">
+          <Dumbbell size={48} strokeWidth={2} />
+          <p className="font-black uppercase tracking-widest text-lg">Nessun Esercizio</p>
+          <p className="text-sm font-bold">Aggiungi esercizi per iniziare a spingere.</p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-8 p-4 mt-4">
+          {exercises.map((ex, exIndex) => {
+            const totalSets = ex.sets.length;
+            const completedSets = ex.sets.filter(s => s.completed);
+            const completedCount = completedSets.length;
+            
+            const allCompletedHaveValues = completedSets.every(s => s.weight.trim() !== "" && s.reps.trim() !== "");
+            
+            const isExCompleted = totalSets > 0 && completedCount === totalSets && allCompletedHaveValues;
+            const isExPartial = completedCount > 0 && !isExCompleted && (!activeSet || activeSet.exIndex !== exIndex);
 
-          return (
-            <div 
-              key={ex.id_scheda_esercizio || exIndex} 
-              className={`bg-surface border-4 border-line shadow-[8px_8px_0px_#000000] flex flex-col transition-all duration-300 
-                ${isExCompleted ? 'border-emerald-500 shadow-[8px_8px_0px_#10b981] bg-emerald-50/5 dark:bg-emerald-950/5' : ''}
-                ${isExPartial ? 'border-orange-500 shadow-[8px_8px_0px_#f97316] bg-orange-50/5 dark:bg-orange-950/5' : ''}`}
-            >
-              <div className={`p-4 border-b-4 border-line bg-base flex justify-between items-center transition-colors
-                ${isExCompleted ? 'bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500' : ''}
-                ${isExPartial ? 'bg-orange-500/10 dark:bg-orange-500/20 text-orange-600 dark:text-orange-400 border-orange-500' : ''}`}
+            return (
+              <div 
+                key={ex.id_scheda_esercizio || exIndex} 
+                className={`bg-surface border-4 border-line shadow-[8px_8px_0px_#000000] flex flex-col transition-all duration-300 
+                  ${isExCompleted ? 'border-emerald-500 shadow-[8px_8px_0px_#10b981] bg-emerald-50/5 dark:bg-emerald-950/5' : ''}
+                  ${isExPartial ? 'border-orange-500 shadow-[8px_8px_0px_#f97316] bg-orange-50/5 dark:bg-orange-950/5' : ''}`}
               >
-                <h2 className="font-heading text-xl font-black uppercase leading-tight line-clamp-1 flex items-center gap-2">
-                  {exIndex + 1}. {ex.nome}
-                  {isExCompleted && <CheckCircle size={18} strokeWidth={3} className="text-emerald-500 animate-in zoom-in" />}
-                  {isExPartial && <AlertCircle size={18} strokeWidth={3} className="text-orange-500 animate-in zoom-in" />}
-                </h2>
-                <div className="flex gap-2">
-                  <button onClick={() => setPreviewExercise(ex)} className="w-9 h-9 bg-brand text-black border-2 border-line flex items-center justify-center font-black shadow-[2px_2px_0px_#000000]">?</button>
-                  <button onClick={() => { setFocusedExIndex(exIndex); setIsOptionsModalOpen(true); }} className="w-9 h-9 bg-surface text-main border-2 border-line flex items-center justify-center shadow-[2px_2px_0px_#000000]"><MoreHorizontal size={20}/></button>
+                <div className={`p-4 border-b-4 border-line bg-base flex justify-between items-start gap-4 transition-colors
+                  ${isExCompleted ? 'bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500' : ''}
+                  ${isExPartial ? 'bg-orange-500/10 dark:bg-orange-500/20 text-orange-600 dark:text-orange-400 border-orange-500' : ''}`}
+                >
+                  <div className="flex-1 flex items-start gap-2 min-w-0">
+                    <h2 className="font-heading text-lg md:text-xl font-black uppercase leading-tight break-words">
+                      {exIndex + 1}. {ex.nome}
+                    </h2>
+                    <div className="shrink-0 mt-0.5">
+                      {isExCompleted && <CheckCircle size={20} strokeWidth={3} className="text-emerald-500 animate-in zoom-in" />}
+                      {isExPartial && <AlertCircle size={20} strokeWidth={3} className="text-orange-500 animate-in zoom-in" />}
+                    </div>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button onClick={() => setPreviewExercise(ex)} className="w-9 h-9 bg-brand text-black border-2 border-line flex items-center justify-center font-black shadow-[2px_2px_0px_#000000]">?</button>
+                    <button onClick={() => { setFocusedExIndex(exIndex); setIsOptionsModalOpen(true); }} className="w-9 h-9 bg-surface text-main border-2 border-line flex items-center justify-center shadow-[2px_2px_0px_#000000]"><MoreHorizontal size={20}/></button>
+                  </div>
                 </div>
-              </div>
-              
-              <div className="grid grid-cols-[3rem_1fr_1fr_3rem] gap-2 p-3 border-b-2 border-line bg-surface/50 text-[10px] font-black uppercase tracking-widest text-muted text-center">
-                <div>Set</div><div>{ex.unita_misura}</div><div>Reps</div><div>Fatto</div>
-              </div>
+                
+                <div className="grid grid-cols-[3rem_1fr_1fr_3rem] gap-2 p-3 border-b-2 border-line bg-surface/50 text-[10px] font-black uppercase tracking-widest text-muted text-center">
+                  <div>Set</div><div>{ex.unita_misura}</div><div>Reps</div><div>Fatto</div>
+                </div>
 
-              <div className="flex flex-col">
-                {ex.sets.map((set, setIndex) => {
-                  const isThisSetActive = activeSet?.exIndex === exIndex && activeSet?.setIndex === setIndex;
-                  let startX = 0;
-                  let startY = 0;
-                  
-                  return (
-                    <div key={set.id} className="relative w-full border-b-2 border-line last:border-b-0 bg-base overflow-hidden">
-                      
-                      <div className="absolute top-0 bottom-0 right-0 w-24 flex items-center justify-center bg-red-100 dark:bg-red-950/30">
-                        <button 
-                          onClick={() => deleteSet(exIndex, setIndex)} 
-                          disabled={ex.sets.length <= 1} 
-                          className="w-full h-full flex items-center justify-center text-red-600 dark:text-red-400 disabled:opacity-20 transition-all outline-none"
-                        >
-                          <Trash2 size={24} strokeWidth={2.5} />
-                        </button>
-                      </div>
-
-                      <div 
-                        onTouchStart={(e) => { startX = e.touches[0].clientX; startY = e.touches[0].clientY; }}
-                        onTouchEnd={(e) => {
-                          const deltaX = startX - e.changedTouches[0].clientX;
-                          const deltaY = Math.abs(startY - e.changedTouches[0].clientY);
-                          if (deltaY < 30) {
-                            if (deltaX > 40) setSwipedSetId(set.id); 
-                            else if (deltaX < -40) setSwipedSetId(null); 
-                          }
-                        }}
-                        className={`relative z-10 w-full p-3 grid grid-cols-[3rem_1fr_1fr_3rem] gap-3 items-center bg-base transition-transform duration-200 ease-out ${swipedSetId === set.id ? '-translate-x-24' : 'translate-x-0'}`}
-                      >
-                        <div className="flex items-center justify-center">
-                          {!set.completed && !isThisSetActive && (
-                            <button 
-                              onClick={() => { if (restTimeDisplay !== null) return; startPrepSet(exIndex, setIndex); }} 
-                              disabled={restTimeDisplay !== null}
-                              className={`flex items-center gap-1 outline-none ${restTimeDisplay !== null ? 'cursor-not-allowed' : 'group'}`}
-                            >
-                              <span className={`font-heading text-lg font-black transition-colors ${restTimeDisplay !== null ? 'text-muted/40' : 'text-muted group-hover:text-main'}`}>{setIndex + 1}</span>
-                              {restTimeDisplay === null && <PlayCircle size={16} className="text-brand shrink-0 opacity-50 group-hover:opacity-100 transition-opacity" />}
-                            </button>
-                          )}
-                          {!set.completed && isThisSetActive && (
-                            <div className="flex items-center gap-1">
-                              <span className="font-heading text-lg font-black text-main">{setIndex + 1}</span>
-                              <div className={`w-3 h-3 rounded-full animate-pulse shadow-[1px_1px_0px_#000000] ${activeSet.phase === 'prep' ? 'bg-[#ffde59]' : 'bg-[#ff331f]'}`} />
-                            </div>
-                          )}
-                          {set.completed && (
-                            <span className="font-heading text-lg font-black text-muted/40 line-through decoration-brand decoration-2">{setIndex + 1}</span>
-                          )}
-                        </div>
-
-                        <input 
-                          type="number" 
-                          value={set.weight} 
-                          placeholder={set.pastWeight || "0"} 
-                          onChange={(e) => updateSet(exIndex, setIndex, 'weight', e.target.value)} 
-                          onFocus={() => { if (swipedSetId === set.id) setSwipedSetId(null); }}
-                          className={`w-full bg-surface border-2 border-line p-2 text-center font-bold outline-none focus:shadow-[2px_2px_0px_#000000] placeholder:text-main/20 dark:placeholder:text-white/20 ${set.completed ? 'text-muted' : 'text-main'}`} 
-                        />
-                        <input 
-                          type="number" 
-                          value={set.reps} 
-                          placeholder={set.pastReps || ex.target_reps || "0"} 
-                          onChange={(e) => updateSet(exIndex, setIndex, 'reps', e.target.value)} 
-                          onFocus={() => { if (swipedSetId === set.id) setSwipedSetId(null); }}
-                          className={`w-full bg-surface border-2 border-line p-2 text-center font-bold outline-none focus:shadow-[2px_2px_0px_#000000] placeholder:text-main/20 dark:placeholder:text-white/20 ${set.completed ? 'text-muted' : 'text-main'}`} 
-                        />
+                <div className="flex flex-col">
+                  {ex.sets.map((set, setIndex) => {
+                    const isThisSetActive = activeSet?.exIndex === exIndex && activeSet?.setIndex === setIndex;
+                    let startX = 0;
+                    let startY = 0;
+                    
+                    return (
+                      <div key={set.id} className="relative w-full border-b-2 border-line last:border-b-0 bg-base overflow-hidden select-none">
                         
-                        <div className="flex justify-center">
-                          <button onClick={() => toggleSetCompletion(exIndex, setIndex)} className={`w-10 h-10 border-2 border-line flex items-center justify-center shadow-[2px_2px_0px_#000000] transition-all ${set.completed ? 'bg-brand shadow-none translate-x-[2px] translate-y-[2px]' : 'bg-surface'}`}>
-                            <Check size={20} strokeWidth={4} className={set.completed ? "text-base" : "text-line/20"} />
+                        <div className="absolute top-0 bottom-0 right-0 w-24 flex items-center justify-center bg-red-100 dark:bg-red-950/30">
+                          <button 
+                            onClick={() => deleteSet(exIndex, setIndex)} 
+                            disabled={ex.sets.length <= 1} 
+                            className="w-full h-full flex items-center justify-center text-red-600 dark:text-red-400 disabled:opacity-20 transition-all outline-none"
+                          >
+                            <Trash2 size={24} strokeWidth={2.5} />
                           </button>
                         </div>
+
+                        <div 
+                          onTouchStart={(e) => { startX = e.touches[0].clientX; startY = e.touches[0].clientY; }}
+                          onTouchEnd={(e) => {
+                            const deltaX = startX - e.changedTouches[0].clientX;
+                            const deltaY = Math.abs(startY - e.changedTouches[0].clientY);
+                            if (deltaY < 30) {
+                              if (deltaX > 40) setSwipedSetId(set.id); 
+                              else if (deltaX < -40) setSwipedSetId(null); 
+                            }
+                          }}
+                          className={`relative z-10 w-full p-3 grid grid-cols-[3rem_1fr_1fr_3rem] gap-3 items-center bg-base transition-transform duration-200 ease-out ${swipedSetId === set.id ? '-translate-x-24' : 'translate-x-0'}`}
+                        >
+                          <div className="flex items-center justify-center">
+                            {!set.completed && !isThisSetActive && (
+                              <button 
+                                onClick={() => { if (restTimeDisplay !== null) return; startPrepSet(exIndex, setIndex); }} 
+                                disabled={restTimeDisplay !== null}
+                                className={`flex items-center gap-1 outline-none ${restTimeDisplay !== null ? 'cursor-not-allowed' : 'group'}`}
+                              >
+                                <span className={`font-heading text-lg font-black transition-colors ${restTimeDisplay !== null ? 'text-muted/40' : 'text-muted group-hover:text-main'}`}>{setIndex + 1}</span>
+                                {restTimeDisplay === null && <PlayCircle size={16} className="text-brand shrink-0 opacity-50 group-hover:opacity-100 transition-opacity" />}
+                              </button>
+                            )}
+                            {!set.completed && isThisSetActive && (
+                              <div className="flex items-center gap-1">
+                                <span className="font-heading text-lg font-black text-main">{setIndex + 1}</span>
+                                <div className={`w-3 h-3 rounded-full animate-pulse shadow-[1px_1px_0px_#000000] ${activeSet.phase === 'prep' ? 'bg-[#ffde59]' : 'bg-[#ff331f]'}`} />
+                              </div>
+                            )}
+                            {set.completed && (
+                              <span className="font-heading text-lg font-black text-muted/40 line-through decoration-brand decoration-2">{setIndex + 1}</span>
+                            )}
+                          </div>
+
+                          <input 
+                            type="number" 
+                            value={set.weight} 
+                            placeholder={set.pastWeight || "0"} 
+                            onChange={(e) => updateSet(exIndex, setIndex, 'weight', e.target.value)} 
+                            onFocus={() => { if (swipedSetId === set.id) setSwipedSetId(null); }}
+                            className={`w-full bg-surface border-2 border-line p-2 text-center font-bold outline-none focus:shadow-[2px_2px_0px_#000000] placeholder:text-main/20 dark:placeholder:text-white/20 ${set.completed ? 'text-muted' : 'text-main'}`} 
+                          />
+                          <input 
+                            type="number" 
+                            value={set.reps} 
+                            placeholder={set.pastReps || ex.target_reps || "0"} 
+                            onChange={(e) => updateSet(exIndex, setIndex, 'reps', e.target.value)} 
+                            onFocus={() => { if (swipedSetId === set.id) setSwipedSetId(null); }}
+                            className={`w-full bg-surface border-2 border-line p-2 text-center font-bold outline-none focus:shadow-[2px_2px_0px_#000000] placeholder:text-main/20 dark:placeholder:text-white/20 ${set.completed ? 'text-muted' : 'text-main'}`} 
+                          />
+                          
+                          <div className="flex justify-center">
+                            <button onClick={() => toggleSetCompletion(exIndex, setIndex)} className={`w-10 h-10 border-2 border-line flex items-center justify-center shadow-[2px_2px_0px_#000000] transition-all ${set.completed ? 'bg-brand shadow-none translate-x-[2px] translate-y-[2px]' : 'bg-surface'}`}>
+                              <Check size={20} strokeWidth={4} className={set.completed ? "text-base" : "text-line/20"} />
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
+                <button onClick={() => { 
+                  setExercises(prev => {
+                    const next = [...prev];
+                    const nxEx = { ...next[exIndex] };
+                    nxEx.sets = [...nxEx.sets, { id: Date.now().toString(), reps: nxEx.target_reps, weight: "", completed: false, pastWeight: "", pastReps: "" }];
+                    next[exIndex] = nxEx;
+                    return next;
+                  });
+                }} className="p-3 bg-surface border-t-2 border-line text-[10px] font-black uppercase tracking-widest text-muted flex justify-center items-center gap-2"><Plus size={14}/> Aggiungi Serie</button>
               </div>
-              <button onClick={() => { 
-                setExercises(prev => {
-                  const next = [...prev];
-                  const nxEx = { ...next[exIndex] };
-                  nxEx.sets = [...nxEx.sets, { id: Date.now().toString(), reps: nxEx.target_reps, weight: "", completed: false, pastWeight: "", pastReps: "" }];
-                  next[exIndex] = nxEx;
-                  return next;
-                });
-              }} className="p-3 bg-surface border-t-2 border-line text-[10px] font-black uppercase tracking-widest text-muted flex justify-center items-center gap-2"><Plus size={14}/> Aggiungi Serie</button>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
+      )}
+
+      {/* PULSANTE AGGIUNTA GLOBALE */}
+      <div className="w-full px-4 mt-4">
+        <button 
+          onClick={() => setCatalogMode('add')} 
+          className="w-full py-5 bg-surface border-4 border-dashed border-line text-main font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-brand transition-colors shadow-[4px_4px_0px_#000000] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none"
+        >
+          <Plus size={24} strokeWidth={3} /> Aggiungi Esercizio
+        </button>
       </div>
 
       <div className="w-full px-4 mt-12 mb-12"><button onClick={finishWorkout} className="w-full py-6 bg-[#ff331f] border-4 border-line text-white font-black uppercase tracking-widest text-2xl shadow-[6px_6px_0px_#000000] flex items-center justify-center gap-3"><Trophy size={28} /> Termina</button></div>
@@ -737,7 +833,7 @@ function WorkoutTrackerContent() {
             </div>
             <div className="flex flex-col gap-3 mt-2">
               <button 
-                onClick={() => { setIsOptionsModalOpen(false); setIsReplaceModalOpen(true); }}
+                onClick={() => { setIsOptionsModalOpen(false); setCatalogMode('replace'); }}
                 className="w-full text-left p-4 bg-surface border-2 border-line font-black uppercase tracking-wide flex justify-between items-center hover:bg-brand active:translate-x-[2px] active:translate-y-[2px]"
               >
                 Sostituisci Esercizio <MoreHorizontal size={18}/>
@@ -820,13 +916,16 @@ function WorkoutTrackerContent() {
         </div>
       )}
 
-      {isReplaceModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex flex-col justify-end">
+      {/* === MODALE CATALOGO CON UGC === */}
+      {catalogMode !== null && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex flex-col justify-end">
           <div className="bg-base w-full h-[90vh] border-t-4 border-line flex flex-col shadow-[0px_-8px_0px_rgba(0,0,0,1)] dark:shadow-[0px_-8px_0px_rgba(128,76,217,1)] animate-in slide-in-from-bottom-full duration-300">
             
             <div className="flex justify-between items-center p-6 border-b-2 border-line shrink-0 bg-surface">
-              <h2 className="font-heading text-2xl font-black uppercase text-main tracking-tighter">Sostituisci</h2>
-              <button onClick={() => { setIsReplaceModalOpen(false); setFocusedExIndex(null); setSelectedMuscles([]); setSelectedEquipment(null); setSearchText(""); setIsMuscoliOpen(false); setIsAttrezziOpen(false); }} className="w-10 h-10 bg-base flex items-center justify-center border-2 border-line shadow-[2px_2px_0px_#000000] dark:shadow-[2px_2px_0px_#804CD9] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all">
+              <h2 className="font-heading text-2xl font-black uppercase text-main tracking-tighter">
+                {catalogMode === 'replace' ? 'Sostituisci' : 'Aggiungi'}
+              </h2>
+              <button onClick={() => { setCatalogMode(null); setFocusedExIndex(null); setSelectedMuscles([]); setSelectedEquipment(null); setSearchText(""); setIsMuscoliOpen(false); setIsAttrezziOpen(false); setUgcMuscleId(null); setUgcEquipmentId(null); }} className="w-10 h-10 bg-base flex items-center justify-center border-2 border-line shadow-[2px_2px_0px_#000000] dark:shadow-[2px_2px_0px_#804CD9] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all">
                 <X size={20} strokeWidth={3} className="text-main"/>
               </button>
             </div>
@@ -889,12 +988,62 @@ function WorkoutTrackerContent() {
 
               <div className="flex flex-col gap-3 pb-6">
                 {risultatiFinali.map(es => (
-                  <button key={`result-${es.id_esercizio}`} onClick={() => handleReplace(es)} className="w-full p-4 bg-surface border-2 border-line text-left font-black uppercase hover:bg-brand transition-colors flex justify-between items-center">
+                  <button key={`result-${es.id_esercizio}`} onClick={() => handleCatalogSelect(es)} className="w-full p-4 bg-surface border-2 border-line text-left font-black uppercase hover:bg-brand transition-colors flex justify-between items-center">
                     {es.nome} <Plus size={20}/>
                   </button>
                 ))}
-                {risultatiFinali.length === 0 && (searchText || selectedMuscles.length > 0 || selectedEquipment) && (
-                  <p className="text-muted text-center mt-10 text-sm font-bold uppercase tracking-widest">Nessun esercizio corrisponde.</p>
+                
+                {/* === INCUBATRICE UGC (LIVE WORKOUT) === */}
+                {risultatiFinali.length === 0 && searchText.trim().length > 1 && (
+                  <div className="mt-4 bg-brand/10 border-4 border-brand p-6 shadow-[8px_8px_0px_var(--brand-accent)] flex flex-col gap-4 animate-in fade-in zoom-in-95">
+                    
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center gap-2 text-brand">
+                        <FlaskConical size={20} strokeWidth={3} />
+                        <span className="text-[10px] font-black uppercase tracking-widest border-2 border-brand px-2 py-0.5 w-fit">Incubatrice</span>
+                      </div>
+                      <h3 className="font-heading text-2xl font-black uppercase text-main tracking-tighter leading-tight break-words">
+                        Crea "{searchText}"
+                      </h3>
+                      <p className="text-xs font-bold text-muted uppercase tracking-widest leading-tight mt-1">
+                        Seleziona muscolo e attrezzo principali per usare l'esercizio istantaneamente in questa sessione.
+                      </p>
+                    </div>
+                    
+                    <div className="flex flex-col gap-3 mt-2">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-main">Muscolo <span className="text-brand">*</span></label>
+                        <select 
+                          value={ugcMuscleId || ""} 
+                          onChange={(e) => setUgcMuscleId(e.target.value)}
+                          className="w-full bg-surface border-2 border-line p-3 font-bold uppercase text-xs tracking-wider outline-none focus:border-brand appearance-none"
+                        >
+                          <option value="" disabled>-- Scegli Gruppo Muscolare --</option>
+                          {muscoli.map(m => <option key={`ugc-m-${m.id_gruppo ?? m.id}`} value={m.id_gruppo ?? m.id}>{m.nome}</option>)}
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-main">Attrezzo <span className="text-brand">*</span></label>
+                        <select 
+                          value={ugcEquipmentId || ""} 
+                          onChange={(e) => setUgcEquipmentId(e.target.value)}
+                          className="w-full bg-surface border-2 border-line p-3 font-bold uppercase text-xs tracking-wider outline-none focus:border-brand appearance-none"
+                        >
+                          <option value="" disabled>-- Scegli Attrezzo --</option>
+                          {attrezzi.map(a => <option key={`ugc-a-${a.id_attrezzo ?? a.id}`} value={a.id_attrezzo ?? a.id}>{a.nome}</option>)}
+                        </select>
+                      </div>
+                    </div>
+
+                    <button 
+                      onClick={handleCreateUGCExercise}
+                      disabled={!ugcMuscleId || !ugcEquipmentId || isCreatingUGC}
+                      className="w-full mt-4 py-4 bg-brand border-2 border-line text-base font-black uppercase tracking-widest shadow-[4px_4px_0px_#000000] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none transition-all disabled:opacity-40 flex justify-center items-center gap-2 outline-none"
+                    >
+                      {isCreatingUGC ? <CleanSpinner size={20} /> : <><Plus size={20} strokeWidth={3} /> CREA E USA ORA</>}
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -905,7 +1054,6 @@ function WorkoutTrackerContent() {
   );
 }
 
-// === COMPONENTE ESPORTATO (CON CONFINE SUSPENSE) ===
 export default function WorkoutTracker() {
   return (
     <Suspense fallback={

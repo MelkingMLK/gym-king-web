@@ -6,9 +6,11 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { AlertTriangle, Play, Trash2 } from 'lucide-react';
 
+// === AGGIUNTA DELLA ROTTA HUB NELL'ARRAY PRINCIPALE ===
 const menuItems = [
   { title: "Start Workout", href: "/start-workout" },
   { title: "Create Template", href: "/create-template" },
+  { title: "Hub", href: "/hub" }, 
   { title: "Statistics", href: "/statistics" },
   { title: "Nutrition", href: "/nutrition" },
   { title: "Settings", href: "/settings" }, 
@@ -135,4 +137,4 @@ export default function Home() {
       
     </main>
   );
-}
+}  
