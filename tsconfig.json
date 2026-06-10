@@ -18,9 +18,9 @@
         "name": "next"
       }
     ],
-"paths": {
-  "@/*": ["./*"]
-}
+    "paths": {
+      "@/*": ["./*"]
+    }
   },
   "include": [
     "next-env.d.ts",
@@ -30,5 +30,10 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules",
+    "capacitor.config.ts",
+    "android",
+    "ios"
+  ]
 }
