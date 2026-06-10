@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useState, useEffect, useMemo, useCallback, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, Trophy, BarChart3, ListOrdered, Zap, Coffee, Trash2, Clock, Ghost, Edit3, X, CheckCircle2, TrendingUp } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -249,7 +249,6 @@ const NightingaleRoseChart = ({ exercises }: { exercises: ExerciseLog[] }) => {
         </svg>
       </div>
 
-      {/* LEGENDA DEL GRAFICO A ROSA (NIGHTINGALE) */}
       <div className="flex flex-col w-full gap-2 mt-6 text-[10px] font-black uppercase tracking-tighter bg-base p-4 border-2 border-line">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#ccff00] border-2 border-line shrink-0"></div>Sforzo (TUT)</div>
@@ -272,10 +271,11 @@ const NightingaleRoseChart = ({ exercises }: { exercises: ExerciseLog[] }) => {
   );
 };
 
-export default function SessionDetailPage() {
+// === LOGICA PRINCIPALE ESTRATTA IN UN COMPONENTE ===
+function SessionDetailContent() {
   const router = useRouter();
-  const params = useParams();
-  const sessionId = params.id as string;
+  const searchParams = useSearchParams();
+  const sessionId = searchParams.get("id"); // Lettura tramite Query Params (?id=123)
 
   const [isLoading, setIsLoading] = useState(true);
   const [workoutName, setWorkoutName] = useState<string>("Allenamento");
@@ -299,9 +299,9 @@ export default function SessionDetailPage() {
   const [isSavingEdits, setIsSavingEdits] = useState(false);
 
   const fetchSessionData = useCallback(async () => {
+    if (!sessionId) return;
     setIsLoading(true);
     try {
-      // 1. Fetch Sessione
       const { data: sessionData, error: sessionError } = await supabase
         .from('Storico_Allenamenti')
         .select('nome_allenamento, inizio_ts, durata_totale_sec, id_giorno')
@@ -332,7 +332,6 @@ export default function SessionDetailPage() {
          }
       }
 
-      // 2. Fetch Serie della Sessione
       const { data: seriesData, error: seriesError } = await supabase
         .from('Storico_Serie')
         .select('id_esercizio, ordine_esercizio, ordine_serie, reps, weight, unita_misura, work_duration_sec, actual_rest_sec, waste_duration_sec, completata_il, Esercizi(nome)')
@@ -376,13 +375,12 @@ export default function SessionDetailPage() {
       setExercises(Array.from(exerciseMap.values()));
       setCurrentVolume(sessionVolume);
 
-      // 3. Analisi Delta Volume (Retroattivo)
       if (sessionData.id_giorno) {
         const { data: previousSession } = await supabase
           .from('Storico_Allenamenti')
           .select('id_sessione, Storico_Serie(weight, reps)')
           .eq('id_giorno', sessionData.id_giorno)
-          .lt('inizio_ts', sessionData.inizio_ts) // Cerca strettamente *prima* di questa sessione
+          .lt('inizio_ts', sessionData.inizio_ts) 
           .order('inizio_ts', { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -395,10 +393,8 @@ export default function SessionDetailPage() {
         }
       }
 
-      // 4. Analisi PR (Retroattivo)
       const uniqueExIds = Array.from(new Set(seriesData.map((r: any) => r.id_esercizio)));
       if (uniqueExIds.length > 0) {
-        // Scarica lo storico *precedente* a questa sessione per stabilire la baseline
         const { data: pastHistory } = await supabase
           .from('Storico_Serie')
           .select('id_esercizio, weight, reps, Storico_Allenamenti!inner(inizio_ts)')
@@ -419,7 +415,6 @@ export default function SessionDetailPage() {
           if (r > (baselines[id].maxRepsByW[w] || 0)) baselines[id].maxRepsByW[w] = r;
         });
 
-        // Valuta le serie di *questa* sessione
         const newPrs: Record<string, string[]> = {};
         seriesData.forEach((row: any) => {
           const w = parseFloat(row.weight) || 0;
@@ -441,13 +436,11 @@ export default function SessionDetailPage() {
             if (r > (baselines[id].maxRepsByW[w] || 0) && !isNewMaxW) { prList.push("Max Reps"); }
           }
 
-          // Aggiorna la baseline per le serie successive
           if (w > baselines[id].maxW) baselines[id].maxW = w;
           if (e1rm > baselines[id].max1RM) baselines[id].max1RM = e1rm;
           if (r > (baselines[id].maxRepsByW[w] || 0)) baselines[id].maxRepsByW[w] = r;
 
           if (prList.length > 0) {
-            // Genera l'ID univoco per associare la medaglia al render
             const setId = `${row.ordine_esercizio}-${row.ordine_serie}`;
             newPrs[setId] = prList;
           }
@@ -503,7 +496,6 @@ export default function SessionDetailPage() {
       
       await Promise.all(updates);
       
-      // Ricarichiamo integralmente i dati per forzare il ricalcolo di PR e Volume Delta
       await fetchSessionData();
       setEditingExIndex(null);
     } catch (err: any) {
@@ -550,7 +542,6 @@ export default function SessionDetailPage() {
         {activeTab === "riepilogo" ? (
           <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4">
             
-            {/* CONTAINER METRICHE (TEMPO E VOLUME DELTA) */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="bg-surface border-4 border-line p-4 shadow-[6px_6px_0px_#000000] flex justify-between items-center text-main">
                 <div className="flex items-center gap-2">
@@ -573,7 +564,6 @@ export default function SessionDetailPage() {
                   </span>
                   {volumeDeltaPct !== null && (
                     <span className={`text-[10px] font-black uppercase tracking-widest mt-1.5 flex items-center gap-1 ${volumeDeltaPct > 0 ? 'text-emerald-500' : volumeDeltaPct < 0 ? 'text-red-500' : 'text-muted'}`}>
-                      {/* FRECCE VETTORIALI SVG (No Emojis) */}
                       {volumeDeltaPct > 0 ? (
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="inline-block"><path d="m5 12 7-7 7 7M12 5v14"/></svg>
                       ) : volumeDeltaPct < 0 ? (
@@ -619,7 +609,6 @@ export default function SessionDetailPage() {
                             {set.weight}{ex.unita_misura} x {set.reps}
                           </div>
                           
-                          {/* TAG DELLE MEDAGLIE (PR) STORICIZZATE (SVG) */}
                           {tags.length > 0 && (
                             <div className="flex flex-wrap gap-1.5">
                               {tags.map((tag, tIdx) => (
@@ -657,11 +646,9 @@ export default function SessionDetailPage() {
               className="flex w-full transition-transform duration-300 ease-out"
               style={{ transform: `translateX(-${chartPage * 100}%)` }}
             >
-              {/* Pagina 1: Micro (Nightingale) */}
               <div className="w-full shrink-0 flex items-stretch select-none px-1">
                 <NightingaleRoseChart exercises={exercises} />
               </div>
-              {/* Pagina 2: Macro (Donut) */}
               <div className="w-full shrink-0 flex items-stretch select-none px-1">
                 <MacroDonutChart exercises={exercises} totalSessionTime={totalTime} />
               </div>
@@ -686,7 +673,6 @@ export default function SessionDetailPage() {
         </div>
       </div>
 
-      {/* MODALE BOTTOM SHEET PER MODIFICA */}
       {editingExIndex !== null && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex flex-col justify-end animate-in fade-in duration-200">
           <div className="bg-base w-full border-t-4 border-line p-6 flex flex-col gap-6 shadow-[0px_-8px_0px_rgba(0,0,0,1)] animate-in slide-in-from-bottom-full duration-300 max-h-[85vh]">
@@ -747,5 +733,18 @@ export default function SessionDetailPage() {
       )}
 
     </main>
+  );
+}
+
+// === COMPONENTE CONTENITORE CON SUSPENSE ===
+export default function SessionDetailPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center bg-base text-main font-black uppercase tracking-widest">
+        Caricamento...
+      </div>
+    }>
+      <SessionDetailContent />
+    </Suspense>
   );
 }

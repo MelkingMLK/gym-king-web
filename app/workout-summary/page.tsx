@@ -20,7 +20,7 @@ const CleanSpinner = ({ size = 24 }: { size?: number }) => {
 type SetData = { id: string; reps: string; weight: string; completed: boolean; workDurationSec?: number | null; actualRestSec?: number | null; wasteDurationSec?: number | null; completedAt?: number; };
 type ExerciseLog = { id_scheda_esercizio?: number; id_esercizio: number; nome: string; recupero_sec: number; unita_misura: string; sets: SetData[]; };
 
-// === ICONA SVG COPPA BRUTALISTA (Sostituisce Emoji) ===
+// === ICONA SVG COPPA BRUTALISTA ===
 const SvgTrophy = ({ size = 10 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
     <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
@@ -211,7 +211,6 @@ const NightingaleRoseChart = ({ exercises }: { exercises: ExerciseLog[] }) => {
         </svg>
       </div>
 
-      {/* LEGENDA DEL GRAFICO A ROSA (NIGHTINGALE) */}
       <div className="flex flex-col w-full gap-2 mt-6 text-[10px] font-black uppercase tracking-tighter bg-base p-4 border-2 border-line">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-[#ccff00] border-2 border-line shrink-0"></div>Sforzo (TUT)</div>
@@ -431,13 +430,10 @@ export default function WorkoutSummaryPage() {
         ex.sets.forEach((set: SetData, idx: number) => {
           if (set.completed) {
             hasValidSets = true;
-            const isFictionalId = ex.id_scheda_esercizio && ex.id_scheda_esercizio > 100000;
-            const validSchedaEsercizioId = (!isFictionalId && ex.id_scheda_esercizio) ? ex.id_scheda_esercizio : null;
-
+            
             payloadSerie.push({
               id_sessione: idSessione,
               id_esercizio: ex.id_esercizio,
-              id_scheda_esercizio: validSchedaEsercizioId,
               ordine_esercizio: ord_es,
               ordine_serie: idx + 1,
               reps: set.reps,
@@ -485,8 +481,8 @@ export default function WorkoutSummaryPage() {
       </div>
 
       <div className="w-full max-w-2xl flex border-4 border-line mb-8 bg-surface shadow-[4px_4px_0px_#000000] overflow-hidden">
-        <button onClick={() => setActiveTab("riepilogo")} className="flex-1 py-4 flex items-center justify-center gap-2.5 font-black uppercase tracking-widest text-xs transition-all outline-none bg-main text-base"><ListOrdered size={18} /> Riepilogo</button>
-        <button onClick={() => setActiveTab("analisi")} className="flex-1 py-4 flex items-center justify-center gap-2.5 font-black uppercase tracking-widest text-xs transition-all outline-none bg-surface text-main hover:bg-base/50"><BarChart3 size={18} /> Analisi Tempi</button>
+        <button onClick={() => setActiveTab("riepilogo")} className={`flex-1 py-4 flex items-center justify-center gap-2.5 font-black uppercase tracking-widest text-xs transition-all outline-none ${activeTab === "riepilogo" ? 'bg-main text-base' : 'bg-surface text-main hover:bg-base/50'}`}><ListOrdered size={18} /> Riepilogo</button>
+        <button onClick={() => setActiveTab("analisi")} className={`flex-1 py-4 flex items-center justify-center gap-2.5 font-black uppercase tracking-widest text-xs transition-all outline-none ${activeTab === "analisi" ? 'bg-main text-base' : 'bg-surface text-main hover:bg-base/50'}`}><BarChart3 size={18} /> Analisi Tempi</button>
       </div>
 
       <div className="w-full max-w-2xl flex-1">
@@ -578,7 +574,7 @@ export default function WorkoutSummaryPage() {
                               {set.weight}{ex.unita_misura || 'KG'} x {set.reps}
                             </div>
                             
-                            {/* TAG DELLE MEDAGLIE CON SVG (No Emojis) */}
+                            {/* TAG DELLE MEDAGLIE CON SVG */}
                             {tags.length > 0 && (
                               <div className="flex flex-wrap gap-1.5">
                                 {tags.map((tag, tIdx) => (

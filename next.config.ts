@@ -9,8 +9,12 @@ const withPWA = withPWAInit({
 });
 
 const nextConfig: NextConfig = {
-  // Questa riga forza Turbopack a tacere e permette al plugin PWA di funzionare
   turbopack: {}, 
+  // --- INIEZIONI PER CAPACITOR (ANDROID APK) ---
+  output: "export", 
+  images: {
+    unoptimized: true, 
+  }
 };
 
 export default withPWA(nextConfig);

@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { Suspense, useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { ChevronLeft, Trash2, Edit3, ChevronRight, X, GripVertical, Globe, Lock, DownloadCloud } from "lucide-react";
-import { supabase } from "../../../lib/supabase";
+import { supabase } from "@/lib/supabase"; // Ho allineato il path all'alias globale per pulizia
 
 const CleanSpinner = ({ size = 24 }: { size?: number }) => {
   const strokeWidth = Math.max(2, Math.round(size * 0.1));
@@ -25,10 +25,12 @@ type Template = {
   cloned_from: string | null; 
 };
 
-export default function TemplateDetailPage() {
-  const params = useParams(); 
+// === LOGICA PRINCIPALE ESTRATTA IN UN COMPONENTE ===
+function TemplateDetailContent() {
+  const searchParams = useSearchParams(); 
   const router = useRouter();
-  const idTemplate = params.id as string;
+  const idTemplate = searchParams.get("id"); // Lettura tramite Query Params (?id=123)
+  
   const [template, setTemplate] = useState<Template | null>(null);
   const [giorni, setGiorni] = useState<Giorno[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -50,6 +52,7 @@ export default function TemplateDetailPage() {
   useEffect(() => { listRef.current = giorni; }, [giorni]);
 
   async function fetchDettagli() {
+    if (!idTemplate) return;
     try {
       const { data: tData } = await supabase.from('Template_Schede').select('*').eq('id_template', idTemplate).single();
       if (tData) {
@@ -115,6 +118,7 @@ export default function TemplateDetailPage() {
   };
 
   const handleDeleteTemplate = async () => {
+    if (!idTemplate) return;
     setIsProcessing(true);
     try {
       await supabase.from('Template_Schede').delete().eq('id_template', idTemplate);
@@ -225,7 +229,8 @@ export default function TemplateDetailPage() {
                 <Edit3 size={20} strokeWidth={3} className="text-main" />
               </button>
               
-              <Link href={`/day/${giorno.id_giorno}`}>
+              {/* === FIX DELLA ROTTA: Da Path Parameter a Query Parameter === */}
+              <Link href={`/day?id=${giorno.id_giorno}`}>
                 <div className="w-12 h-12 bg-brand flex items-center justify-center border-2 border-line shadow-[2px_2px_0px_#000000] dark:shadow-[2px_2px_0px_#804CD9] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all">
                   <ChevronRight size={24} strokeWidth={3} className="text-base" />
                 </div>
@@ -276,5 +281,18 @@ export default function TemplateDetailPage() {
         </div>
       )}
     </main>
+  );
+}
+
+// === COMPONENTE CONTENITORE CON SUSPENSE ===
+export default function TemplateDetailPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center bg-base text-main font-black uppercase tracking-widest">
+        Caricamento...
+      </div>
+    }>
+      <TemplateDetailContent />
+    </Suspense>
   );
 }

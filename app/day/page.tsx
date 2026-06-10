@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { Suspense, useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { ChevronLeft, Plus, Search, X, Trash2, Edit3, ChevronRight, ChevronDown, GripVertical, FlaskConical } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import Fuse from "fuse.js";
@@ -80,9 +80,10 @@ const ExerciseIcon = ({ nome, gif_url, muscles, onImageClick }: { nome: string, 
   );
 };
 
-export default function DayEditorPage() {
-  const params = useParams();
-  const idGiorno = params.id as string;
+// === LOGICA PRINCIPALE ESTRATTA IN UN COMPONENTE ===
+function DayEditorContent() {
+  const searchParams = useSearchParams();
+  const idGiorno = searchParams.get("id"); // Lettura tramite Query Params (?id=123)
 
   const [giorno, setGiorno] = useState<Giorno | null>(null);
   const [eserciziGiorno, setEserciziGiorno] = useState<SchedaEsercizio[]>([]);
@@ -229,8 +230,6 @@ export default function DayEditorPage() {
     risultatiFinali = filtratiBase;
   }
 
-  // === MOTORE DI CREAZIONE UGC (CON ANTI-COLLISIONE) ===
-// === MOTORE DI CREAZIONE UGC (CON ANTI-COLLISIONE) ===
   const handleCreateUGCExercise = async () => {
     if (!searchText.trim() || !ugcMuscleId || !ugcEquipmentId || !currentUserId) return;
     setIsCreatingUGC(true);
@@ -238,7 +237,6 @@ export default function DayEditorPage() {
     try {
       const nomeUppercase = searchText.trim().toUpperCase();
       
-      // 1. Controllo Anti-Collisione
       const { data: existing } = await supabase
         .from('Esercizi')
         .select('*')
@@ -249,11 +247,9 @@ export default function DayEditorPage() {
       let finalEx: Esercizio;
 
       if (existing) {
-        // Se esiste già, catturiamo l'ID ignorando l'inserimento
         idEsercizio = existing.id_esercizio ?? existing.id;
         finalEx = { id_esercizio: idEsercizio, nome: existing.nome, is_approved: existing.is_approved, user_id: existing.user_id };
       } else {
-        // 2. Inserimento di un nuovo record con metadati
         const { data: newEx, error: exErr } = await supabase
           .from('Esercizi')
           .insert([{ 
@@ -269,7 +265,6 @@ export default function DayEditorPage() {
         idEsercizio = newEx.id_esercizio ?? newEx.id;
         finalEx = { id_esercizio: idEsercizio, nome: newEx.nome, is_approved: false, user_id: currentUserId };
         
-        // 3. Creazione Relazioni (Gestione Errori Pulita e Tipizzata)
         const { error: relMErr } = await supabase.from('Esercizio_Muscolo').insert([{ id_esercizio: idEsercizio, id_gruppo: Number(ugcMuscleId) }]);
         if (relMErr) {
           await supabase.from('esercizio_muscolo').insert([{ esercizio_id: idEsercizio, gruppo_id: Number(ugcMuscleId) }]);
@@ -281,7 +276,6 @@ export default function DayEditorPage() {
         }
       }
 
-      // 4. Update UI Locale
       setTuttiEsercizi(prev => [...prev, finalEx]);
       setRelMuscoli(prev => [...prev, { id_esercizio: idEsercizio, id_gruppo: Number(ugcMuscleId) }]);
       setRelAttrezzi(prev => [...prev, { id_esercizio: idEsercizio, id_attrezzo: Number(ugcEquipmentId) }]);
@@ -344,7 +338,7 @@ export default function DayEditorPage() {
     <main className="flex min-h-screen flex-col items-center pt-12 px-4 pb-20 relative overflow-x-hidden bg-base transition-colors duration-300">
       
       <div className="w-full max-w-2xl flex justify-between items-center mb-8">
-        <Link href={giorno ? `/template/${giorno.id_template}` : "/create-template"}>
+        <Link href={giorno ? `/template?id=${giorno.id_template}` : "/create-template"}>
           <div className="w-12 h-12 bg-surface flex items-center justify-center border-2 border-line shadow-[4px_4px_0px_#000000] transition-all active:translate-x-[4px] active:translate-y-[4px] active:shadow-none">
             <ChevronLeft className="text-main" size={24} strokeWidth={3} />
           </div>
@@ -358,7 +352,6 @@ export default function DayEditorPage() {
 
       <div className="w-full max-w-2xl flex flex-col gap-5">
         {eserciziGiorno.map((es, index) => {
-          // Stato locale isolato per tracciare il tocco di questa specifica riga
           let touchStartX = 0;
           let touchStartY = 0;
           let isHorizontalSwipe = false;
@@ -387,9 +380,8 @@ export default function DayEditorPage() {
               }}
               onDragOver={(e) => e.preventDefault()}
               className="relative w-full border-2 border-line shadow-[6px_6px_0px_#000000] bg-[#ff331f] overflow-hidden select-none"
-              style={{ touchAction: "pan-y" }} // Blocca i conflitti di scroll nativo del browser durante lo swipe
+              style={{ touchAction: "pan-y" }} 
             >
-              {/* PANNELLO DI CANCELLAZIONE SOTTOSTANTE */}
               <div className="absolute top-0 bottom-0 right-0 w-24 flex items-center justify-center text-white z-0">
                 <button 
                   onClick={() => handleDeleteExercise(es.id_scheda_esercizio)} 
@@ -399,20 +391,13 @@ export default function DayEditorPage() {
                 </button>
               </div>
               
-              {/* CONTENITORE SUPERIORE CHE SCIVOLA */}
-              <div 
-                className={`relative z-10 w-full bg-surface border-r-2 border-line flex items-stretch transition-transform duration-300 ease-out ${swipedExerciseId === es.id_scheda_esercizio ? '-translate-x-24' : 'translate-x-0'}`}
-              >
+              <div className={`relative z-10 w-full bg-surface border-r-2 border-line flex items-stretch transition-transform duration-300 ease-out ${swipedExerciseId === es.id_scheda_esercizio ? '-translate-x-24' : 'translate-x-0'}`}>
                 
-                {/* MANIGLIA ISOLATA: Gestisce SOLO il Drag & Drop */}
                 <div 
-                  draggable={typeof window !== "undefined" && !('ontouchstart' in window)} // Attivo solo se NON è un dispositivo touch
+                  draggable={typeof window !== "undefined" && !('ontouchstart' in window)} 
                   onDragStart={(e) => { dragItem.current = index; e.dataTransfer.effectAllowed = 'move'; }}
                   onDragEnd={() => { dragItem.current = null; commitReorder(); }}
-                  onTouchStart={(e) => { 
-                    e.stopPropagation(); // Impedisce alla card di interpretarlo come swipe
-                    dragItem.current = index; 
-                  }}
+                  onTouchStart={(e) => { e.stopPropagation(); dragItem.current = index; }}
                   onTouchMove={(e) => {
                     e.stopPropagation();
                     if (dragItem.current === null) return;
@@ -433,17 +418,12 @@ export default function DayEditorPage() {
                       }
                     }
                   }}
-                  onTouchEnd={(e) => { 
-                    e.stopPropagation(); 
-                    dragItem.current = null; 
-                    commitReorder(); 
-                  }}
+                  onTouchEnd={(e) => { e.stopPropagation(); dragItem.current = null; commitReorder(); }}
                   className="shrink-0 flex items-center justify-center px-4 text-main/30 hover:text-main transition-colors cursor-grab active:cursor-grabbing touch-none"
                 >
                   <GripVertical size={24} strokeWidth={2.5} />
                 </div>
 
-                {/* CORPO INFORMATIVO: Gestisce lo Swipe e il Click di Modifica */}
                 <div 
                   className="flex-1 flex items-center gap-3 py-3 pr-4 cursor-pointer"
                   onTouchStart={(e) => {
@@ -454,28 +434,20 @@ export default function DayEditorPage() {
                   onTouchMove={(e) => {
                     const deltaX = touchStartX - e.touches[0].clientX;
                     const deltaY = Math.abs(touchStartY - e.touches[0].clientY);
-                    
-                    // Se il movimento orizzontale supera una soglia minima ed è maggiore del movimento verticale
                     if (Math.abs(deltaX) > 10 && deltaY < 15) {
                       isHorizontalSwipe = true;
-                      // Impediamo il trigger del click di edit o lo scroll della pagina durante lo swipe
                       if (e.cancelable) e.preventDefault(); 
                     }
                   }}
                   onTouchEnd={(e) => {
                     const deltaX = touchStartX - e.changedTouches[0].clientX;
                     const deltaY = Math.abs(touchStartY - e.changedTouches[0].clientY);
-                    
                     if (isHorizontalSwipe && deltaY < 30) {
-                      if (deltaX > 45) {
-                        setSwipedExerciseId(es.id_scheda_esercizio);
-                      } else if (deltaX < -45) {
-                        setSwipedExerciseId(null);
-                      }
+                      if (deltaX > 45) setSwipedExerciseId(es.id_scheda_esercizio);
+                      else if (deltaX < -45) setSwipedExerciseId(null);
                     }
                   }}
                   onClick={(e) => {
-                    // Se l'utente ha swipato o sta chiudendo la card, blocchiamo l'apertura della modale di modifica
                     if (isHorizontalSwipe) return;
                     if (swipedExerciseId === es.id_scheda_esercizio) {
                       setSwipedExerciseId(null);
@@ -505,7 +477,6 @@ export default function DayEditorPage() {
                     <Edit3 size={20} strokeWidth={2.5} className="text-muted shrink-0 ml-2 group-hover:text-brand transition-colors" />
                   </div>
                 </div>
-
               </div>
             </div>
           );
@@ -519,7 +490,6 @@ export default function DayEditorPage() {
         )}
       </div>
 
-      {/* MODALE RICERCA ESERCIZI CON UGC ARRICCHITO */}
       {isSearchSheetOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex flex-col justify-end">
           <div className="bg-base w-full h-[90vh] border-t-4 border-line flex flex-col shadow-[0px_-8px_0px_rgba(0,0,0,1)] animate-in slide-in-from-bottom-full duration-300">
@@ -614,7 +584,6 @@ export default function DayEditorPage() {
                   );
                 })}
                 
-                {/* BLOCCO UGC */}
                 {risultatiFinali.length === 0 && searchText.trim().length > 1 && (
                   <div className="mt-4 bg-brand/10 border-4 border-brand p-6 shadow-[8px_8px_0px_var(--brand-accent)] flex flex-col gap-4 animate-in fade-in zoom-in-95">
                     <div className="flex flex-col gap-2">
@@ -721,5 +690,18 @@ export default function DayEditorPage() {
       )}
 
     </main>
+  );
+}
+
+// === COMPONENTE CONTENITORE CON SUSPENSE ===
+export default function DayEditorPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center bg-base text-main font-black uppercase tracking-widest">
+        Caricamento...
+      </div>
+    }>
+      <DayEditorContent />
+    </Suspense>
   );
 }

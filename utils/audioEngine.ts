@@ -34,12 +34,11 @@ export const unlockAudio = () => {
       audioCtx.resume();
     }
     
-    // Inizializza anche il fallback nativo per sbloccarlo con il tocco utente
     if (nativeAudioFallback) {
       nativeAudioFallback.play().then(() => {
         nativeAudioFallback?.pause();
         if (nativeAudioFallback) nativeAudioFallback.currentTime = 0;
-      }).catch(() => { /* ignora errori di play vuoto */ });
+      }).catch(() => {});
     }
 
     isUnlocked = true;
@@ -52,7 +51,7 @@ export const loadAudioFile = async (url: string) => {
   if (typeof window === "undefined") return;
   currentAudioUrl = url;
 
-  // 1. Pre-carichiamo il Fallback Nativo (immediato, gestito dal browser)
+  // 1. Pre-caricamento del Fallback Nativo
   if (!nativeAudioFallback) {
     nativeAudioFallback = new Audio(url);
     nativeAudioFallback.preload = "auto";
@@ -61,7 +60,7 @@ export const loadAudioFile = async (url: string) => {
     nativeAudioFallback.load();
   }
 
-  // 2. Tentiamo il caricamento Web Audio API (Avanzato, ma prono a fallire su rete debole)
+  // 2. Caricamento Web Audio API Buffer
   initAudioContext();
   if (!audioCtx) return;
   
@@ -69,33 +68,57 @@ export const loadAudioFile = async (url: string) => {
     const response = await fetch(url);
     if (!response.ok) throw new Error("Network response was not ok");
     const arrayBuffer = await response.arrayBuffer();
+    // Evitiamo callback obsolete basandoci sulla promise nativa di decodeAudioData
     audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
   } catch (e) {
     console.warn("Web Audio API buffer failed, relies on native fallback.", e);
-    // Non facciamo nulla: il fallback nativo è pronto.
+    audioBuffer = null; // Forza il fallback se il caricamento fallisce
   }
 };
 
 export const playSound = () => {
-  // PIANO A: Web Audio API (Veloce, nessuna latenza)
-  if (audioCtx && audioBuffer) {
+  if (typeof window === "undefined") return;
+
+  // 1. ESTRAZIONE DINAMICA DELLE PREFERENZE DALLA SALA MACCHINE
+  const savedSound = localStorage.getItem("gymking_sound") || "sounds/gong.mp3";
+  const savedVolume = localStorage.getItem("gymking_volume");
+  const volumeValue = savedVolume !== null ? parseFloat(savedVolume) : 1.0;
+
+  // 2. CONTROLLO DI DISALLINEAMENTO: Se il file richiesto differisce da quello in cache, forziamo il reload asincrono
+  const fullUrl = `/${savedSound}`;
+  if (currentAudioUrl !== fullUrl) {
+    loadAudioFile(fullUrl);
+  }
+
+  // === PIANO A: Web Audio API con GainNode per il controllo del volume ===
+  if (audioCtx && audioBuffer && currentAudioUrl === fullUrl) {
     try {
       if (audioCtx.state === 'suspended') {
         audioCtx.resume();
       }
+      
       const source = audioCtx.createBufferSource();
+      // Creiamo l'attenuatore di guadagno per mappare il volume matematico
+      const gainNode = audioCtx.createGain();
+      
       source.buffer = audioBuffer;
-      source.connect(audioCtx.destination);
+      gainNode.gain.setValueAtTime(volumeValue, audioCtx.currentTime);
+      
+      // Catena di montaggio: Source -> GainNode -> Altoparlanti (Destination)
+      source.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      
       source.start(0);
-      return; // Suono riprodotto con successo
+      return; 
     } catch (e) {
-      console.warn("Web Audio API fallita durante il play, passo al fallback.", e);
+      console.warn("Web Audio API fallita durante il play, passo al fallback nativo.", e);
     }
   }
 
-  // PIANO B: Fallback HTML5 Nativo (In caso di buffer null o errore context)
+  // === PIANO B: Fallback HTML5 Nativo con controllo volume diretto ===
   if (nativeAudioFallback) {
     try {
+      nativeAudioFallback.volume = volumeValue; // Allineamento immediato allo slider delle impostazioni
       nativeAudioFallback.currentTime = 0;
       const playPromise = nativeAudioFallback.play();
       
@@ -108,10 +131,11 @@ export const playSound = () => {
       console.error("Errore critico audio nativo:", fallbackError);
     }
   } else {
-    // Se persino il fallback è null, proviamo un disperato salvataggio in extremis
-    if (currentAudioUrl && typeof window !== "undefined") {
-      const emergencyAudio = new Audio(currentAudioUrl);
+    // Piano di emergenza estremo se tutto il resto è dereferenziato
+    try {
+      const emergencyAudio = new Audio(fullUrl);
+      emergencyAudio.volume = volumeValue;
       emergencyAudio.play().catch(e => console.error("Emergenza audio fallita:", e));
-    }
+    } catch (e) {}
   }
 };

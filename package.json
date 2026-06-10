@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@capacitor/android": "^8.3.4",
     "@supabase/supabase-js": "^2.105.1",
     "fuse.js": "^7.3.0",
     "lucide-react": "^1.14.0",
