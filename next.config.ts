@@ -9,12 +9,22 @@ const withPWA = withPWAInit({
 });
 
 const nextConfig: NextConfig = {
-  turbopack: {}, 
-  // --- INIEZIONI PER CAPACITOR (ANDROID APK) ---
-  output: "export", 
+  // --- CONFIGURAZIONE PER ESPORTAZIONE STATICA ---
+  output: "export",
+  
+  // Fondamentale: forza Next.js a generare cartelle con index.html 
+  // anziché file .html isolati, risolvendo i 404 nei router statici.
+  trailingSlash: true,
+  
+  // Ottimizzazione immagini necessaria poiché 'next/image' 
+  // non è supportato in modalità 'export' statica.
   images: {
-    unoptimized: true, 
-  }
+    unoptimized: true,
+  },
+
+  // Turbopack è in fase sperimentale, se riscontra crash durante 
+  // la build, commenti la riga sottostante.
+  turbopack: {}, 
 };
 
 export default withPWA(nextConfig);

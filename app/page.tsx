@@ -6,7 +6,6 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { AlertTriangle, Play, Trash2 } from 'lucide-react';
 
-// === AGGIUNTA DELLA ROTTA HUB NELL'ARRAY PRINCIPALE ===
 const menuItems = [
   { title: "Start Workout", href: "/start-workout" },
   { title: "Create Template", href: "/create-template" },
@@ -20,23 +19,39 @@ export default function Home() {
   const router = useRouter();
   const [nickname, setNickname] = useState<string>("");
   const [showRescueModal, setShowRescueModal] = useState(false);
+  
+  // IL MURO DI CEMENTO: Parte bloccato di default
+  const [isAuthenticating, setIsAuthenticating] = useState(true);
 
   useEffect(() => {
-    // 1. Controllo Autenticazione e Nickname
-    const fetchUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user?.user_metadata?.nickname) {
-        setNickname(user.user_metadata.nickname);
+    const initializeApp = async () => {
+      // 1. Interrogazione rigorosa della sessione
+      const { data: { session }, error } = await supabase.auth.getSession();
+      
+      // Se non c'è sessione, eject immediato. 
+      // Il return impedisce allo script di proseguire e sbloccare la UI.
+      if (!session || error) {
+        router.replace('/login');
+        return; 
       }
-    };
-    fetchUser();
 
-    // 2. Controllo Sessioni Sospese (Rescue Pop-up)
-    const savedWorkout = localStorage.getItem("gymking_active_workout");
-    if (savedWorkout) {
-      setShowRescueModal(true);
-    }
-  }, []);
+      // 2. Se siamo qui, il token è valido. Estraiamo i dati.
+      if (session.user.user_metadata?.nickname) {
+        setNickname(session.user.user_metadata.nickname);
+      }
+
+      // 3. Controllo Sessioni Sospese (Rescue Pop-up)
+      const savedWorkout = localStorage.getItem("gymking_active_workout");
+      if (savedWorkout) {
+        setShowRescueModal(true);
+      }
+
+      // 4. Tutto confermato. Abbassiamo il ponte levatoio.
+      setIsAuthenticating(false);
+    };
+
+    initializeApp();
+  }, [router]);
 
   const handleResumeWorkout = () => {
     setShowRescueModal(false);
@@ -48,6 +63,23 @@ export default function Home() {
     setShowRescueModal(false);
   };
 
+  // === RENDERING CONDIZIONALE DI BLOCCO ===
+  // Finché isAuthenticating è true, il resto del codice non esiste per il DOM.
+  if (isAuthenticating) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-base text-main relative overflow-hidden">
+        <div className="flex flex-col items-center gap-6 z-10">
+          <div className="w-16 h-16 relative flex items-center justify-center animate-pulse">
+             <img src="/logoG.png" alt="Caricamento" className="w-full h-full object-contain dark:hidden" />
+             <img src="/logo.png" alt="Caricamento" className="w-full h-full object-contain hidden dark:block" />
+          </div>
+          <div className="w-8 h-8 border-4 border-line border-t-brand rounded-full animate-spin"></div>
+        </div>
+      </main>
+    );
+  }
+
+  // === UI PRINCIPALE (Accessibile solo se autenticati) ===
   return (
     <main className="flex min-h-screen flex-col items-center justify-start pt-16 px-4 transition-colors duration-300 relative overflow-x-hidden bg-base">
       
@@ -98,9 +130,7 @@ export default function Home() {
         ))}
       </div>
 
-      {/* ==========================================
-          MODALE RESCUE (ALLENAMENTO SOSPESO)
-          ========================================== */}
+      {/* MODALE RESCUE (ALLENAMENTO SOSPESO) */}
       {showRescueModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[200] flex items-center justify-center p-4 animate-in fade-in duration-300">
           <div className="w-full max-w-sm bg-base border-4 border-brand p-6 shadow-[12px_12px_0px_#000000] flex flex-col gap-6 animate-in zoom-in-95 duration-200">
@@ -137,4 +167,4 @@ export default function Home() {
       
     </main>
   );
-}  
+}

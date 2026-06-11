@@ -230,7 +230,7 @@ function TemplateDetailContent() {
               </button>
               
               {/* === FIX DELLA ROTTA: Da Path Parameter a Query Parameter === */}
-              <Link href={`/day?id=${giorno.id_giorno}`}>
+                <Link href={`/day?id=${giorno.id_giorno}`}>
                 <div className="w-12 h-12 bg-brand flex items-center justify-center border-2 border-line shadow-[2px_2px_0px_#000000] dark:shadow-[2px_2px_0px_#804CD9] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all">
                   <ChevronRight size={24} strokeWidth={3} className="text-base" />
                 </div>

@@ -239,7 +239,7 @@ export default function CreateTemplatePage() {
             {filteredTemplates.map((template) => {
               const cat = categorie.find(c => c.id_categoria === template.id_categoria);
               return (
-                <Link key={template.id_template} href={`/template/${template.id_template}`} className="w-full group outline-none">
+                <Link key={template.id_template} href={`/template?id=${template.id_template}`} className="w-full group outline-none">
                   <div className="w-full bg-base border-2 border-line p-4 flex items-center gap-5 transition-all shadow-[6px_6px_0px_#000000] dark:shadow-[6px_6px_0px_#804CD9] group-hover:translate-x-[2px] group-hover:translate-y-[2px] group-hover:shadow-[4px_4px_0px_#000000] dark:group-hover:shadow-[4px_4px_0px_#804CD9] active:translate-x-[6px] active:translate-y-[6px] active:shadow-none">
                     
                     <div className="w-16 h-16 bg-[#f4f4f0] border-2 border-[#1a1a1a] flex items-center justify-center shrink-0 overflow-hidden">
