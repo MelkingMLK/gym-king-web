@@ -21,18 +21,22 @@ export const initAudioContext = () => {
 export const unlockAudio = () => {
   if (typeof window === "undefined") return;
   initAudioContext();
-  if (!audioCtx || isUnlocked) return;
+  if (!audioCtx) return;
 
   try {
+    // === FORZATURA ANTI-HIJACKING PREVENTIVA ===
+    // Se l'utente tocca lo schermo dopo aver messo in pausa Spotify, riattiviamo il canale.
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(() => {});
+    }
+
+    if (isUnlocked) return;
+
     const buffer = audioCtx.createBuffer(1, 1, 22050);
     const node = audioCtx.createBufferSource();
     node.buffer = buffer;
     node.connect(audioCtx.destination);
     node.start(0);
-    
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume();
-    }
     
     if (nativeAudioFallback) {
       nativeAudioFallback.play().then(() => {
@@ -68,43 +72,43 @@ export const loadAudioFile = async (url: string) => {
     const response = await fetch(url);
     if (!response.ok) throw new Error("Network response was not ok");
     const arrayBuffer = await response.arrayBuffer();
-    // Evitiamo callback obsolete basandoci sulla promise nativa di decodeAudioData
     audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
   } catch (e) {
     console.warn("Web Audio API buffer failed, relies on native fallback.", e);
-    audioBuffer = null; // Forza il fallback se il caricamento fallisce
+    audioBuffer = null; 
   }
 };
 
 export const playSound = () => {
   if (typeof window === "undefined") return;
 
-  // 1. ESTRAZIONE DINAMICA DELLE PREFERENZE DALLA SALA MACCHINE
+  // 1. ESTRAZIONE DINAMICA DELLE PREFERENZE
   const savedSound = localStorage.getItem("gymking_sound") || "sounds/gong.mp3";
   const savedVolume = localStorage.getItem("gymking_volume");
   const volumeValue = savedVolume !== null ? parseFloat(savedVolume) : 1.0;
 
-  // 2. CONTROLLO DI DISALLINEAMENTO: Se il file richiesto differisce da quello in cache, forziamo il reload asincrono
+  // 2. CONTROLLO DI DISALLINEAMENTO
   const fullUrl = `/${savedSound}`;
   if (currentAudioUrl !== fullUrl) {
     loadAudioFile(fullUrl);
   }
 
-  // === PIANO A: Web Audio API con GainNode per il controllo del volume ===
+  // === LA CURA AL MEDIA HIJACKING DI iOS ===
+  // Anche se il timer scade in background (senza tocco dell'utente), 
+  // ordiniamo al motore di riprendere possesso della scheda audio.
+  if (audioCtx && audioCtx.state === 'suspended') {
+    audioCtx.resume().catch(e => console.warn("Impossibile fare resume forzato:", e));
+  }
+
+  // === PIANO A: Web Audio API con GainNode (Controllo Volume) ===
   if (audioCtx && audioBuffer && currentAudioUrl === fullUrl) {
     try {
-      if (audioCtx.state === 'suspended') {
-        audioCtx.resume();
-      }
-      
       const source = audioCtx.createBufferSource();
-      // Creiamo l'attenuatore di guadagno per mappare il volume matematico
       const gainNode = audioCtx.createGain();
       
       source.buffer = audioBuffer;
       gainNode.gain.setValueAtTime(volumeValue, audioCtx.currentTime);
       
-      // Catena di montaggio: Source -> GainNode -> Altoparlanti (Destination)
       source.connect(gainNode);
       gainNode.connect(audioCtx.destination);
       
@@ -115,10 +119,10 @@ export const playSound = () => {
     }
   }
 
-  // === PIANO B: Fallback HTML5 Nativo con controllo volume diretto ===
+  // === PIANO B: Fallback HTML5 Nativo ===
   if (nativeAudioFallback) {
     try {
-      nativeAudioFallback.volume = volumeValue; // Allineamento immediato allo slider delle impostazioni
+      nativeAudioFallback.volume = volumeValue;
       nativeAudioFallback.currentTime = 0;
       const playPromise = nativeAudioFallback.play();
       
@@ -131,7 +135,7 @@ export const playSound = () => {
       console.error("Errore critico audio nativo:", fallbackError);
     }
   } else {
-    // Piano di emergenza estremo se tutto il resto è dereferenziato
+    // Piano di emergenza estremo
     try {
       const emergencyAudio = new Audio(fullUrl);
       emergencyAudio.volume = volumeValue;

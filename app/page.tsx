@@ -53,9 +53,9 @@ export default function Home() {
     initializeApp();
   }, [router]);
 
-  const handleResumeWorkout = () => {
+    const handleResumeWorkout = () => {
     setShowRescueModal(false);
-    router.push("/active-workout");
+    router.push("/active-workout?resume=true"); // <-- FIX 1
   };
 
   const handleDiscardWorkout = () => {

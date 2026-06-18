@@ -179,7 +179,7 @@ export default function StartWorkoutPage() {
   };
 
   useEffect(() => {
-    const savedSession = localStorage.getItem("gymking_active_session");
+    const savedSession = localStorage.getItem("gymking_active_workout"); // <-- FIX: Chiave corretta
     if (savedSession) {
       setHasSavedWorkout(true);
     }
@@ -254,26 +254,26 @@ export default function StartWorkoutPage() {
   };
 
 const startFreeWorkout = () => {
-    unlockAudio(); // <-- SBLOCCO SINCRONO
+    unlockAudio(); 
     const preferredSound = localStorage.getItem('gymking_sound') || 'sounds/gong.mp3';
     loadAudioFile(preferredSound.startsWith('/') ? preferredSound : `/${preferredSound}`);
-    localStorage.removeItem("gymking_active_session");
+    localStorage.removeItem("gymking_active_workout"); // <-- FIX: Chiave corretta
     router.push(`/active-workout`);
   };
 
   const handleStartTemplateWorkout = () => {
-    unlockAudio(); // <-- SBLOCCO SINCRONO
+    unlockAudio(); 
     const preferredSound = localStorage.getItem('gymking_sound') || 'sounds/gong.mp3';
     loadAudioFile(preferredSound.startsWith('/') ? preferredSound : `/${preferredSound}`);
-    localStorage.removeItem("gymking_active_session");
+    localStorage.removeItem("gymking_active_workout"); // <-- FIX: Chiave corretta
     setCountdown(5);
   };
 
   const handleResumeWorkout = () => {
-    unlockAudio(); // <-- SBLOCCO SINCRONO
+    unlockAudio(); 
     const preferredSound = localStorage.getItem('gymking_sound') || 'sounds/gong.mp3';
     loadAudioFile(preferredSound.startsWith('/') ? preferredSound : `/${preferredSound}`);
-    router.push("/active-workout");
+    router.push("/active-workout?resume=true"); // <-- FIX: Aggiunto resume=true
   };
 
   return (

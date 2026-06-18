@@ -16,7 +16,8 @@ const CleanSpinner = ({ size = 24 }: { size?: number }) => {
   );
 };
 
-type SerieStorico = { weight: string; reps: string; id_esercizio: number; };
+// Aggiunto campo unita_misura
+type SerieStorico = { weight: string; reps: string; id_esercizio: number; unita_misura?: string; };
 type SessioneStorico = { 
   id_sessione: string; 
   nome_allenamento: string; 
@@ -154,7 +155,13 @@ const WeightProgressionChart = ({ storico, availableYears }: { storico: Sessione
 
       const exMaxWeight: Record<number, number> = {};
       s.Storico_Serie.forEach(set => {
-        const w = parseFloat(set.weight) || 0;
+        let w = parseFloat(set.weight) || 0;
+        
+        // NORMALIZZAZIONE SCALARE ALLA FONTE
+        if (set.unita_misura === 'LBS') {
+          w = w * 0.45359237;
+        }
+
         if (w > (exMaxWeight[set.id_esercizio] || 0)) exMaxWeight[set.id_esercizio] = w;
       });
       const sessionLoad = Object.values(exMaxWeight).reduce((sum, w) => sum + w, 0);
@@ -278,6 +285,7 @@ const WeightProgressionChart = ({ storico, availableYears }: { storico: Sessione
 };
 
 // === COMPONENTE PRINCIPALE STATISTICS ===
+// === COMPONENTE PRINCIPALE STATISTICS ===
 export default function StatisticsPage() {
   const router = useRouter();
   const [storico, setStorico] = useState<SessioneStorico[]>([]);
@@ -296,12 +304,14 @@ export default function StatisticsPage() {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
+        
         const { data, error } = await supabase
           .from('Storico_Allenamenti')
-          .select(`id_sessione, nome_allenamento, inizio_ts, durata_totale_sec, id_template, Template_Schede ( nome_template ), Storico_Serie ( weight, reps, id_esercizio )`)
+          .select(`id_sessione, nome_allenamento, inizio_ts, durata_totale_sec, id_template, Template_Schede ( nome_template ), Storico_Serie ( weight, reps, id_esercizio, unita_misura )`)
           .eq('user_id', user.id)
           .order('inizio_ts', { ascending: false })
           .limit(2000);
+          
         if (error) throw error;
         if (data) setStorico(data as unknown as SessioneStorico[]);
       } catch (err) { console.error(err); } finally { setIsLoading(false); }
@@ -341,7 +351,7 @@ export default function StatisticsPage() {
   return (
     <main className="flex min-h-screen flex-col items-center pt-12 px-4 pb-20 relative bg-base transition-colors">
       
-      <div className="w-full max-w-2xl flex justify-between items-center mb-8 relative z-10">
+      <div className="w-full max-w-2xl flex justify-between items-center mb-6 relative z-10">
         <Link href="/"><div className="w-12 h-12 bg-surface flex items-center justify-center border-2 border-line shadow-[4px_4px_0px_#000000] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none transition-all"><ChevronLeft className="text-main" size={24} strokeWidth={3} /></div></Link>
         <h1 className="font-heading text-3xl font-black uppercase text-main tracking-tighter absolute left-1/2 -translate-x-1/2">Statistiche</h1>
         <div className="w-12 h-12" />
@@ -352,12 +362,25 @@ export default function StatisticsPage() {
           <div className="flex justify-center py-20"><CleanSpinner size={48} /></div>
         ) : (
           <>
+            {/* === NUOVO BANNER STORICO (UI Ridisegnata) === */}
+            <button 
+              onClick={() => setIsHistorySheetOpen(true)} 
+              className="w-full bg-surface border-4 border-line p-4 flex justify-between items-center shadow-[6px_6px_0px_#000000] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none transition-all group outline-none"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-brand border-2 border-line flex items-center justify-center shadow-[2px_2px_0px_#000000]">
+                  <Dumbbell size={24} className="text-base" strokeWidth={3}/>
+                </div>
+                <div className="flex flex-col items-start gap-0.5">
+                  <span className="font-heading text-xl font-black uppercase tracking-tighter text-main leading-none">Storico Allenamenti</span>
+
+                </div>
+              </div>
+              <ChevronRight size={28} strokeWidth={3} className="text-line/30 group-hover:text-main transition-colors" />
+            </button>
+
             <WorkoutHeatmap storico={storico} availableYears={availableYears} />
             <WeightProgressionChart storico={storico} availableYears={availableYears} />
-
-            <button onClick={() => setIsHistorySheetOpen(true)} className="w-full py-6 bg-brand border-4 border-line text-base font-black uppercase text-xl shadow-[8px_8px_0px_#000000] hover:-translate-y-1 active:translate-x-[4px] active:translate-y-[4px] active:shadow-none transition-all flex items-center justify-center gap-3 mt-4 outline-none">
-              <Dumbbell size={24} strokeWidth={3} /> Storico Completo
-            </button>
           </>
         )}
       </div>

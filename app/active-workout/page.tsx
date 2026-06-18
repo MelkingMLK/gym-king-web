@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, Check, Trophy, Plus, MoreHorizontal, PlayCircle, ChevronDown, CheckCircle, Trash2, X, AlertCircle, History, Dumbbell, Search, ChevronRight, FlaskConical } from "lucide-react";
+import { ChevronLeft, Check, Trophy, Plus, MoreHorizontal, PlayCircle, ChevronDown, CheckCircle, Trash2, X, AlertCircle, History, Dumbbell, Search, ChevronRight, FlaskConical, Weight } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import Fuse from "fuse.js";
 import { playSound } from "@/utils/audioEngine";
@@ -79,9 +79,11 @@ type RelazioneAttrezzo = { id_esercizio?: number; id_attrezzo?: number; };
 function WorkoutTrackerContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const isRedirecting = useRef(false);
   
   const urlDayId = searchParams.get("day");
   const urlTemplateId = searchParams.get("template");
+  const isResume = searchParams.get("resume") === "true";
 
   const [dayId, setDayId] = useState<string | null>(null);
   const [templateId, setTemplateId] = useState<string | null>(null);
@@ -205,10 +207,9 @@ function WorkoutTrackerContent() {
           const currentDayId = parsed.dayId || urlDayId;
           const currentTemplateId = parsed.templateId || urlTemplateId;
           
-          setDayId(currentDayId);
-          setTemplateId(currentTemplateId);
-
-          if (currentDayId === urlDayId || (!urlDayId && parsed.workoutName === "Allenamento Libero")) {
+          if (isResume || currentDayId === urlDayId || (!urlDayId && parsed.workoutName === "Allenamento Libero")) {
+            setDayId(currentDayId);
+            setTemplateId(currentTemplateId);
             setWorkoutName(parsed.workoutName); 
             setExercises(parsed.exercises); 
             setStartTime(parsed.startTime); 
@@ -288,7 +289,7 @@ function WorkoutTrackerContent() {
       } catch (error) { console.error(error); } finally { setIsLoading(false); }
     }
     loadWorkout();
-  }, [urlDayId, urlTemplateId]);
+  }, [urlDayId, urlTemplateId, isResume]);
 
   useEffect(() => {
     if (isHistoryModalOpen && focusedExIndex !== null) {
@@ -345,7 +346,7 @@ function WorkoutTrackerContent() {
   };
 
   useEffect(() => {
-    if (isLoading || !startTime) return;
+    if (isLoading || !startTime || isRedirecting.current) return;
     const stateToSave = { templateId, dayId, workoutName, exercises, startTime, restEndTime, extraStartTime, restTotalTime, activeSet, restingSet };
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(stateToSave));
   }, [exercises, restEndTime, extraStartTime, startTime, workoutName, dayId, templateId, isLoading, restTotalTime, activeSet, restingSet]);
@@ -512,7 +513,6 @@ function WorkoutTrackerContent() {
     risultatiFinali = filtratiBase;
   }
 
-  // === MOTORE DI CREAZIONE UGC INTERNO AL WORKOUT ===
   const handleCreateUGCExercise = async () => {
     if (!searchText.trim() || !ugcMuscleId || !ugcEquipmentId || !currentUserId) return;
     setIsCreatingUGC(true);
@@ -537,7 +537,6 @@ function WorkoutTrackerContent() {
       setRelMuscoli(prev => [...prev, { id_esercizio: idEsercizio, id_gruppo: Number(ugcMuscleId) }]);
       setRelAttrezzi(prev => [...prev, { id_esercizio: idEsercizio, id_attrezzo: Number(ugcEquipmentId) }]);
       
-      // Passa l'esercizio appena creato al gestore esistente del catalogo
       handleCatalogSelect(exCreato);
     } catch (error) {
       console.error("Errore Creazione UGC:", error);
@@ -547,11 +546,34 @@ function WorkoutTrackerContent() {
     }
   };
 
-  const handleCatalogSelect = (nuovoEs: EsercizioBase) => {
-    if (catalogMode === 'replace' && focusedExIndex !== null) {
+  const handleCatalogSelect = async (nuovoEs: EsercizioBase) => {
+    const isReplace = catalogMode === 'replace';
+    let pastWeight = "";
+    let pastReps = "";
+
+    try {
+      const { data: lastRecord } = await supabase
+        .from('Storico_Serie')
+        .select('weight, reps')
+        .eq('id_esercizio', nuovoEs.id_esercizio)
+        .not('weight', 'is', null)
+        .order('completata_il', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+        
+      if (lastRecord) {
+        pastWeight = lastRecord.weight || "";
+        pastReps = lastRecord.reps || "";
+      }
+    } catch (e) {
+      console.error("Errore fetch ghosting:", e);
+    }
+
+    if (isReplace && focusedExIndex !== null) {
       setExercises(prev => {
         const next = [...prev];
         next[focusedExIndex] = { ...next[focusedExIndex], id_esercizio: nuovoEs.id_esercizio, nome: nuovoEs.nome, gif_url: nuovoEs.gif_url };
+        next[focusedExIndex].sets = next[focusedExIndex].sets.map(s => ({ ...s, pastWeight, pastReps }));
         return next;
       });
     } else if (catalogMode === 'add') {
@@ -562,11 +584,11 @@ function WorkoutTrackerContent() {
           id_esercizio: nuovoEs.id_esercizio,
           nome: nuovoEs.nome,
           gif_url: nuovoEs.gif_url,
-          recupero_sec: 90,
+          recupero_sec: 135,
           target_serie: 1,
           target_reps: "10",
           unita_misura: "KG",
-          sets: [{ id: Date.now().toString(), reps: "", weight: "", completed: false, pastWeight: "", pastReps: "" }]
+          sets: [{ id: Date.now().toString(), reps: "", weight: "", completed: false, pastWeight, pastReps }]
         }
       ]);
     }
@@ -582,10 +604,15 @@ function WorkoutTrackerContent() {
     setUgcEquipmentId(null);
   };
 
-  const clearAndRedirect = () => { localStorage.removeItem(LOCAL_STORAGE_KEY); router.push("/start-workout"); };
+  const clearAndRedirect = () => { 
+    isRedirecting.current = true;
+    localStorage.removeItem(LOCAL_STORAGE_KEY); 
+    router.replace("/start-workout"); 
+  };
   
   const finishWorkout = () => {
     if (confirm("Terminare l'allenamento e generare i grafici?")) {
+      isRedirecting.current = true;
       commitRestPhase();
       
       const normalizedExercises = exercises.map(ex => ({
@@ -604,13 +631,15 @@ function WorkoutTrackerContent() {
         parsed.exercises = normalizedExercises; 
         localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(parsed));
       }
-      router.push("/workout-summary");
+      router.replace("/workout-summary");
     }
   };
 
   const formatTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
     const s = (seconds % 60).toString().padStart(2, '0');
+    if (h > 0) return `${h}:${m}:${s}`;
     return `${m}:${s}`;
   };
 
@@ -838,6 +867,22 @@ function WorkoutTrackerContent() {
               >
                 Sostituisci Esercizio <MoreHorizontal size={18}/>
               </button>
+              
+              <button 
+                onClick={() => { 
+                  setExercises(prev => {
+                    const next = [...prev];
+                    const attuale = next[focusedExIndex].unita_misura;
+                    next[focusedExIndex].unita_misura = attuale === 'KG' ? 'LBS' : 'KG';
+                    return next;
+                  });
+                  setIsOptionsModalOpen(false); 
+                }}
+                className="w-full text-left p-4 bg-surface border-2 border-line font-black uppercase tracking-wide flex justify-between items-center hover:bg-[#ffde59] active:translate-x-[2px] active:translate-y-[2px]"
+              >
+                Passa a {exercises[focusedExIndex].unita_misura === 'KG' ? 'LBS' : 'KG'} <Weight size={18}/>
+              </button>
+
               <button 
                 onClick={() => { setIsOptionsModalOpen(false); setIsHistoryModalOpen(true); }}
                 className="w-full text-left p-4 bg-surface border-2 border-line font-black uppercase tracking-wide flex justify-between items-center hover:bg-brand active:translate-x-[2px] active:translate-y-[2px]"

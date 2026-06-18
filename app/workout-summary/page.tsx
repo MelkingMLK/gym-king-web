@@ -279,8 +279,12 @@ export default function WorkoutSummaryPage() {
         parsed.exercises?.forEach((ex: any) => {
           ex.sets?.forEach((s: any) => {
             if (s.completed) {
-              const w = parseFloat(s.weight) || 0;
+              let w = parseFloat(s.weight) || 0;
               const r = parseInt(s.reps) || 0;
+              // === NORMALIZZAZIONE LBS -> KG ===
+              if (ex.unita_misura === 'LBS') {
+                w = w * 0.45359237;
+              }
               currentVol += (w * r);
             }
           });
@@ -290,14 +294,19 @@ export default function WorkoutSummaryPage() {
         if (parsed.dayId) {
           const { data: lastSess } = await supabase
             .from('Storico_Allenamenti')
-            .select('id_sessione, Storico_Serie(weight, reps)')
+            .select('id_sessione, Storico_Serie(weight, reps, unita_misura)')
             .eq('id_giorno', parsed.dayId)
             .order('inizio_ts', { ascending: false })
             .limit(1)
             .maybeSingle();
 
           if (lastSess && lastSess.Storico_Serie && lastSess.Storico_Serie.length > 0) {
-            const lastVol = lastSess.Storico_Serie.reduce((acc: number, s: any) => acc + ((parseFloat(s.weight) || 0) * (parseInt(s.reps) || 0)), 0);
+            const lastVol = lastSess.Storico_Serie.reduce((acc: number, s: any) => {
+                let w = parseFloat(s.weight) || 0;
+                const r = parseInt(s.reps) || 0;
+                if (s.unita_misura === 'LBS') w = w * 0.45359237;
+                return acc + (w * r);
+            }, 0);
             if (lastVol > 0) {
               setVolumeDeltaPct(Math.round(((currentVol - lastVol) / lastVol) * 100));
             }
@@ -308,14 +317,17 @@ export default function WorkoutSummaryPage() {
         if (exIds.length > 0) {
           const { data: history } = await supabase
             .from('Storico_Serie')
-            .select('id_esercizio, weight, reps')
+            .select('id_esercizio, weight, reps, unita_misura')
             .in('id_esercizio', exIds);
 
           const baselines: Record<number, { maxW: number, max1RM: number, maxRepsByW: Record<number, number> }> = {};
           history?.forEach(row => {
-            const w = parseFloat(row.weight) || 0;
+            let w = parseFloat(row.weight) || 0;
             const r = parseInt(row.reps) || 0;
             const id = row.id_esercizio;
+            
+            if (row.unita_misura === 'LBS') w = w * 0.45359237;
+            
             const e1rm = w * (1 + r / 30);
             
             if (!baselines[id]) baselines[id] = { maxW: 0, max1RM: 0, maxRepsByW: {} };
@@ -329,9 +341,11 @@ export default function WorkoutSummaryPage() {
             const id = ex.id_esercizio;
             ex.sets?.forEach((set: any) => {
               if (!set.completed) return;
-              const w = parseFloat(set.weight) || 0;
+              let w = parseFloat(set.weight) || 0;
               const r = parseInt(set.reps) || 0;
               if (w === 0 || r === 0) return; 
+              
+              if (ex.unita_misura === 'LBS') w = w * 0.45359237;
 
               if (!baselines[id]) baselines[id] = { maxW: 0, max1RM: 0, maxRepsByW: {} };
 
@@ -507,12 +521,12 @@ export default function WorkoutSummaryPage() {
                   <span className="font-heading text-lg font-black uppercase tracking-tight leading-none pt-1">Volume<br/>Load</span>
                 </div>
                 <div className="flex flex-col items-end">
+                  {/* === GHIOGLIOTTINA VISIVA: toFixed(2) === */}
                   <span className="font-mono text-xl font-black bg-main text-base border-2 border-line px-4 py-2 shadow-[2px_2px_0px_#000000]">
-                    {currentVolume} KG
+                    {Number(currentVolume.toFixed(2))} KG
                   </span>
                   {volumeDeltaPct !== null && (
                     <span className={`text-[10px] font-black uppercase tracking-widest mt-1.5 flex items-center gap-1 ${volumeDeltaPct > 0 ? 'text-emerald-500' : volumeDeltaPct < 0 ? 'text-red-500' : 'text-muted'}`}>
-                      {/* FRECCE VETTORIALI SVG (No Emojis) */}
                       {volumeDeltaPct > 0 ? (
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="inline-block"><path d="m5 12 7-7 7 7M12 5v14"/></svg>
                       ) : volumeDeltaPct < 0 ? (
@@ -574,7 +588,6 @@ export default function WorkoutSummaryPage() {
                               {set.weight}{ex.unita_misura || 'KG'} x {set.reps}
                             </div>
                             
-                            {/* TAG DELLE MEDAGLIE CON SVG */}
                             {tags.length > 0 && (
                               <div className="flex flex-wrap gap-1.5">
                                 {tags.map((tag, tIdx) => (

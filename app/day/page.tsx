@@ -83,12 +83,11 @@ const ExerciseIcon = ({ nome, gif_url, muscles, onImageClick }: { nome: string, 
 // === LOGICA PRINCIPALE ESTRATTA IN UN COMPONENTE ===
 function DayEditorContent() {
   const searchParams = useSearchParams();
-  const idGiorno = searchParams.get("id"); // Lettura tramite Query Params (?id=123)
+  const idGiorno = searchParams.get("id");
 
   const [giorno, setGiorno] = useState<Giorno | null>(null);
   const [eserciziGiorno, setEserciziGiorno] = useState<SchedaEsercizio[]>([]);
   
-  // DRAG ITEM REF
   const dragItem = useRef<number | null>(null);
   const listRef = useRef(eserciziGiorno);
   
@@ -122,11 +121,11 @@ function DayEditorContent() {
   const [swipedExerciseId, setSwipedExerciseId] = useState<number | null>(null);
   const [previewGif, setPreviewGif] = useState<string | null>(null);
 
-  // === STATI PER INCUBATRICE UGC ===
+  // === STATI PER CREAZIONE UGC AGGIORNATI (Nome Inglese Rimosso) ===
   const [isCreatingUGC, setIsCreatingUGC] = useState(false);
   const [ugcMuscleId, setUgcMuscleId] = useState<string | null>(null);
+  const [ugcSecondaryMuscleIds, setUgcSecondaryMuscleIds] = useState<string[]>([]);
   const [ugcEquipmentId, setUgcEquipmentId] = useState<string | null>(null);
-  const [ugcNomeInglese, setUgcNomeInglese] = useState("");
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   async function fetchData() {
@@ -203,6 +202,10 @@ function DayEditorContent() {
     setSelectedMuscles(prev => prev.includes(id) ? prev.filter(mId => mId !== id) : [...prev, id]);
   };
 
+  const toggleUgcSecondaryMuscle = (id: string) => {
+    setUgcSecondaryMuscleIds(prev => prev.includes(id) ? prev.filter(mId => mId !== id) : [...prev, id]);
+  };
+
   let risultatiFinali: Esercizio[] = [];
   const hasSearch = searchText.trim() !== "";
   const hasMuscles = selectedMuscles.length > 0;
@@ -243,18 +246,30 @@ function DayEditorContent() {
         .ilike('nome', nomeUppercase)
         .maybeSingle();
 
-      let idEsercizio;
+      let idEsercizio: number;
       let finalEx: Esercizio;
 
       if (existing) {
         idEsercizio = existing.id_esercizio ?? existing.id;
         finalEx = { id_esercizio: idEsercizio, nome: existing.nome, is_approved: existing.is_approved, user_id: existing.user_id };
       } else {
+        // === AUTO-TRANSLATION INTERNA ===
+        let translatedName = null;
+        try {
+          const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(searchText.trim())}&langpair=it|en`);
+          const translationData = await res.json();
+          if (translationData?.responseData?.translatedText) {
+            translatedName = translationData.responseData.translatedText.toUpperCase();
+          }
+        } catch (e) {
+          console.warn("API Traduzione fallita. Procedo senza traduzione in inglese.", e);
+        }
+
         const { data: newEx, error: exErr } = await supabase
           .from('Esercizi')
           .insert([{ 
             nome: nomeUppercase, 
-            nome_inglese: ugcNomeInglese.trim() || null,
+            nome_inglese: translatedName, 
             is_approved: false, 
             user_id: currentUserId 
           }])
@@ -265,11 +280,23 @@ function DayEditorContent() {
         idEsercizio = newEx.id_esercizio ?? newEx.id;
         finalEx = { id_esercizio: idEsercizio, nome: newEx.nome, is_approved: false, user_id: currentUserId };
         
-        const { error: relMErr } = await supabase.from('Esercizio_Muscolo').insert([{ id_esercizio: idEsercizio, id_gruppo: Number(ugcMuscleId) }]);
+        // --- INSERIMENTO MUSCOLI (PRIMARIO + SECONDARI) ---
+        const allMusclesToInsert = [ugcMuscleId, ...ugcSecondaryMuscleIds];
+        const payloadMuscoli = allMusclesToInsert.map(mId => ({
+          id_esercizio: idEsercizio,
+          id_gruppo: Number(mId)
+        }));
+
+        const { error: relMErr } = await supabase.from('Esercizio_Muscolo').insert(payloadMuscoli);
         if (relMErr) {
-          await supabase.from('esercizio_muscolo').insert([{ esercizio_id: idEsercizio, gruppo_id: Number(ugcMuscleId) }]);
+          const fallbackPayload = allMusclesToInsert.map(mId => ({
+            esercizio_id: idEsercizio,
+            gruppo_id: Number(mId)
+          }));
+          await supabase.from('esercizio_muscolo').insert(fallbackPayload);
         }
 
+        // --- INSERIMENTO ATTREZZO ---
         const { error: relAErr } = await supabase.from('Esercizio_Attrezzo').insert([{ id_esercizio: idEsercizio, id_attrezzo: Number(ugcEquipmentId) }]);
         if (relAErr) {
           await supabase.from('esercizio_attrezzo').insert([{ esercizio_id: idEsercizio, attrezzo_id: Number(ugcEquipmentId) }]);
@@ -277,7 +304,8 @@ function DayEditorContent() {
       }
 
       setTuttiEsercizi(prev => [...prev, finalEx]);
-      setRelMuscoli(prev => [...prev, { id_esercizio: idEsercizio, id_gruppo: Number(ugcMuscleId) }]);
+      const newRelsM = [ugcMuscleId, ...ugcSecondaryMuscleIds].map(mId => ({ id_esercizio: idEsercizio, id_gruppo: Number(mId) }));
+      setRelMuscoli(prev => [...prev, ...newRelsM]);
       setRelAttrezzi(prev => [...prev, { id_esercizio: idEsercizio, id_attrezzo: Number(ugcEquipmentId) }]);
       
       handleExerciseSelect(finalEx);
@@ -307,7 +335,8 @@ function DayEditorContent() {
       
       setIsDetailSheetOpen(false); setSelectedExercise(null); setEditingId(null); 
       setUnitaMisura("KG"); setSearchText(""); setSelectedMuscles([]); setSelectedEquipment(null);
-      setIsMuscoliOpen(false); setIsAttrezziOpen(false); setUgcMuscleId(null); setUgcEquipmentId(null); setUgcNomeInglese("");
+      setIsMuscoliOpen(false); setIsAttrezziOpen(false); 
+      setUgcMuscleId(null); setUgcSecondaryMuscleIds([]); setUgcEquipmentId(null);
       await fetchData();
     } catch (error) { console.error(error); } finally { setIsSaving(false); }
   };
@@ -496,7 +525,7 @@ function DayEditorContent() {
             
             <div className="flex justify-between items-center p-6 border-b-2 border-line shrink-0 bg-surface">
               <h2 className="font-heading text-2xl font-black uppercase text-main tracking-tighter">Catalogo</h2>
-              <button onClick={() => { setIsSearchSheetOpen(false); setSelectedMuscles([]); setSelectedEquipment(null); setSearchText(""); setIsMuscoliOpen(false); setIsAttrezziOpen(false); setUgcMuscleId(null); setUgcEquipmentId(null); setUgcNomeInglese(""); }} className="w-10 h-10 bg-base flex items-center justify-center border-2 border-line shadow-[2px_2px_0px_#000000] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all">
+              <button onClick={() => { setIsSearchSheetOpen(false); setSelectedMuscles([]); setSelectedEquipment(null); setSearchText(""); setIsMuscoliOpen(false); setIsAttrezziOpen(false); setUgcMuscleId(null); setUgcSecondaryMuscleIds([]); setUgcEquipmentId(null); }} className="w-10 h-10 bg-base flex items-center justify-center border-2 border-line shadow-[2px_2px_0px_#000000] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all">
                 <X size={20} strokeWidth={3} className="text-main"/>
               </button>
             </div>
@@ -584,53 +613,78 @@ function DayEditorContent() {
                   );
                 })}
                 
+                {/* === COMPONENTE INSERIMENTO ESERCIZIO AGGIORNATO === */}
                 {risultatiFinali.length === 0 && searchText.trim().length > 1 && (
-                  <div className="mt-4 bg-brand/10 border-4 border-brand p-6 shadow-[8px_8px_0px_var(--brand-accent)] flex flex-col gap-4 animate-in fade-in zoom-in-95">
-                    <div className="flex flex-col gap-2">
-                      <div className="flex items-center gap-2 text-brand">
-                        <FlaskConical size={20} strokeWidth={3} />
-                        <span className="text-[10px] font-black uppercase tracking-widest border-2 border-brand px-2 py-0.5 w-fit">Incubatrice</span>
-                      </div>
+                  <div className="mt-4 bg-surface border-4 border-line p-6 shadow-[8px_8px_0px_#000000] flex flex-col gap-6 animate-in fade-in zoom-in-95">
+                    <div className="flex flex-col gap-1 border-b-4 border-line pb-4">
+                      <span className="text-[10px] font-black text-brand uppercase tracking-widest border-2 border-brand bg-brand/10 w-fit px-2 py-1 mb-1">Nuovo Esercizio</span>
                       <h3 className="font-heading text-2xl font-black uppercase text-main tracking-tighter leading-tight break-words">
-                        Crea "{searchText}"
+                        {searchText}
                       </h3>
                     </div>
                     
-                    <div className="flex flex-col gap-3 mt-2">
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-main">Muscolo <span className="text-brand">*</span></label>
-                        <select value={ugcMuscleId || ""} onChange={(e) => setUgcMuscleId(e.target.value)} className="w-full bg-surface border-2 border-line p-3 font-bold uppercase text-xs tracking-wider outline-none focus:border-brand appearance-none">
-                          <option value="" disabled>-- Scegli --</option>
+                    <div className="flex flex-col gap-5">
+                      
+                      {/* FOCUS PRIMARIO */}
+                      <div className="flex flex-col gap-2">
+                        <label className="text-xs font-black uppercase tracking-widest text-main">Focus Muscolare Primario <span className="text-brand">*</span></label>
+                        <select 
+                          value={ugcMuscleId || ""} 
+                          onChange={(e) => {
+                            setUgcMuscleId(e.target.value);
+                            if (ugcSecondaryMuscleIds.includes(e.target.value)) {
+                              setUgcSecondaryMuscleIds(prev => prev.filter(id => id !== e.target.value));
+                            }
+                          }} 
+                          className="w-full bg-base border-2 border-line p-4 font-bold uppercase text-xs tracking-wider outline-none focus:border-brand appearance-none"
+                        >
+                          <option value="" disabled>-- Scegli Muscolo Principale --</option>
                           {muscoli.map(m => <option key={`ugc-m-${m.id_gruppo ?? m.id}`} value={m.id_gruppo ?? m.id}>{m.nome}</option>)}
                         </select>
                       </div>
 
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-main">Attrezzo <span className="text-brand">*</span></label>
-                        <select value={ugcEquipmentId || ""} onChange={(e) => setUgcEquipmentId(e.target.value)} className="w-full bg-surface border-2 border-line p-3 font-bold uppercase text-xs tracking-wider outline-none focus:border-brand appearance-none">
-                          <option value="" disabled>-- Scegli --</option>
+                      {/* FOCUS SECONDARI */}
+                      {ugcMuscleId && (
+                        <div className="flex flex-col gap-2 p-4 bg-base border-2 border-line border-dashed">
+                           <label className="text-[10px] font-black uppercase tracking-widest text-muted">Focus Secondari (Opzionale)</label>
+                           <div className="flex flex-wrap gap-2 mt-1">
+                             {muscoli.filter(m => String(m.id_gruppo ?? m.id) !== ugcMuscleId).map(m => {
+                               const mId = String(m.id_gruppo ?? m.id);
+                               const isSelected = ugcSecondaryMuscleIds.includes(mId);
+                               return (
+                                 <button 
+                                   key={`ugc-sec-${mId}`} 
+                                   onClick={() => toggleUgcSecondaryMuscle(mId)} 
+                                   className={`px-3 py-1.5 border-2 border-line text-[10px] font-black uppercase tracking-widest transition-all outline-none ${isSelected ? 'bg-brand text-base shadow-[2px_2px_0px_#000000] translate-x-[-1px] translate-y-[-1px]' : 'bg-surface text-muted hover:text-main hover:bg-line/10'}`}
+                                 >
+                                   {m.nome}
+                                 </button>
+                               )
+                             })}
+                           </div>
+                        </div>
+                      )}
+
+                      {/* ATTREZZO */}
+                      <div className="flex flex-col gap-2">
+                        <label className="text-xs font-black uppercase tracking-widest text-main">Attrezzo Utilizzato <span className="text-brand">*</span></label>
+                        <select 
+                          value={ugcEquipmentId || ""} 
+                          onChange={(e) => setUgcEquipmentId(e.target.value)} 
+                          className="w-full bg-base border-2 border-line p-4 font-bold uppercase text-xs tracking-wider outline-none focus:border-brand appearance-none"
+                        >
+                          <option value="" disabled>-- Scegli Attrezzo --</option>
                           {attrezzi.map(a => <option key={`ugc-a-${a.id_attrezzo ?? a.id}`} value={a.id_attrezzo ?? a.id}>{a.nome}</option>)}
                         </select>
-                      </div>
-
-                      <div className="flex flex-col gap-1 mt-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-main">Nome Inglese <span className="text-muted lowercase">(Opzionale per auto-sync GIF)</span></label>
-                        <input 
-                          type="text" 
-                          value={ugcNomeInglese} 
-                          onChange={(e) => setUgcNomeInglese(e.target.value)} 
-                          placeholder="Es. Cable Flyes"
-                          className="w-full bg-surface border-2 border-line p-3 font-bold text-xs outline-none focus:border-brand placeholder:text-muted/50"
-                        />
                       </div>
                     </div>
 
                     <button 
                       onClick={handleCreateUGCExercise}
                       disabled={!ugcMuscleId || !ugcEquipmentId || isCreatingUGC}
-                      className="w-full mt-4 py-4 bg-brand border-2 border-line text-base font-black uppercase tracking-widest shadow-[4px_4px_0px_#000000] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none transition-all disabled:opacity-40 flex justify-center items-center gap-2 outline-none"
+                      className="w-full mt-2 py-5 bg-brand border-4 border-line text-base font-black uppercase tracking-widest shadow-[4px_4px_0px_#000000] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none transition-all disabled:opacity-40 flex justify-center items-center gap-2 outline-none"
                     >
-                      {isCreatingUGC ? <CleanSpinner size={20} /> : <><Plus size={20} strokeWidth={3} /> CREA E USA ORA</>}
+                      {isCreatingUGC ? <CleanSpinner size={24} /> : <><Plus size={24} strokeWidth={3} /> AGGIUNGI ESERCIZIO</>}
                     </button>
                   </div>
                 )}
