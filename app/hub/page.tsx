@@ -291,8 +291,13 @@ export default function HubPage() {
                       <span className="font-heading text-2xl font-black uppercase text-main tracking-tight leading-none break-words pr-2">{es.nome}</span>
                       
                       <div className="flex flex-wrap gap-2">
-                        {relatedMuscles.length > 0 ? relatedMuscles.map(m => (
-                          <span key={m.id_gruppo ?? m.id} className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 bg-line text-base">{m.nome}</span>
+                        {relatedMuscles.length > 0 ? relatedMuscles.map((m, mIdx) => (
+                          <span 
+                            key={m.id_gruppo ?? m.id} 
+                            className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 ${mIdx === 0 ? 'bg-line text-base' : 'border border-line border-dashed text-muted'}`}
+                          >
+                            {m.nome}
+                          </span>
                         )) : <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 border border-line text-muted">Muscolo N/D</span>}
 
                         {relatedEquipment.length > 0 ? relatedEquipment.map(a => (

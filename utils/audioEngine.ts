@@ -80,66 +80,52 @@ export const loadAudioFile = async (url: string) => {
 };
 
 export const playSound = () => {
+  // Preveniamo l'esecuzione lato server (Next.js SSR)
   if (typeof window === "undefined") return;
 
-  // 1. ESTRAZIONE DINAMICA DELLE PREFERENZE
-  const savedSound = localStorage.getItem("gymking_sound") || "sounds/gong.mp3";
-  const savedVolume = localStorage.getItem("gymking_volume");
-  const volumeValue = savedVolume !== null ? parseFloat(savedVolume) : 1.0;
+  try {
+    // 1. Recupero rigoroso delle preferenze normalizzate dal localStorage
+    const savedSound = localStorage.getItem("gymking_sound") || "sounds/gong.mp3";
+    const savedVolume = localStorage.getItem("gymking_volume");
+    const volume = savedVolume !== null ? parseFloat(savedVolume) : 1.0;
 
-  // 2. CONTROLLO DI DISALLINEAMENTO
-  const fullUrl = `/${savedSound}`;
-  if (currentAudioUrl !== fullUrl) {
-    loadAudioFile(fullUrl);
-  }
+    // Se il volume è azzerato, non allochiamo memoria hardware inutilmente
+    if (volume === 0) return;
 
-  // === LA CURA AL MEDIA HIJACKING DI iOS ===
-  // Anche se il timer scade in background (senza tocco dell'utente), 
-  // ordiniamo al motore di riprendere possesso della scheda audio.
-  if (audioCtx && audioCtx.state === 'suspended') {
-    audioCtx.resume().catch(e => console.warn("Impossibile fare resume forzato:", e));
-  }
+    // 2. Allocazione di un'istanza locale isolata (evita il lock dei singleton)
+    const audio = new Audio(`/${savedSound}`);
+    audio.volume = volume;
+    
+    // Configurazione per permettere l'override e il mix parziale sui browser supportati
+    audio.preload = "auto";
 
-  // === PIANO A: Web Audio API con GainNode (Controllo Volume) ===
-  if (audioCtx && audioBuffer && currentAudioUrl === fullUrl) {
-    try {
-      const source = audioCtx.createBufferSource();
-      const gainNode = audioCtx.createGain();
-      
-      source.buffer = audioBuffer;
-      gainNode.gain.setValueAtTime(volumeValue, audioCtx.currentTime);
-      
-      source.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
-      
-      source.start(0);
-      return; 
-    } catch (e) {
-      console.warn("Web Audio API fallita durante il play, passo al fallback nativo.", e);
-    }
-  }
+    // 3. Reset forzato del buffer hardware prima dell'avvio
+    audio.load();
 
-  // === PIANO B: Fallback HTML5 Nativo ===
-  if (nativeAudioFallback) {
-    try {
-      nativeAudioFallback.volume = volumeValue;
-      nativeAudioFallback.currentTime = 0;
-      const playPromise = nativeAudioFallback.play();
-      
-      if (playPromise !== undefined) {
-        playPromise.catch(error => {
-          console.error("Anche il fallback audio nativo è fallito:", error);
+    // 4. Esecuzione gestita della Promise asincrona
+    const playPromise = audio.play();
+
+    if (playPromise !== undefined) {
+      playPromise
+        .then(() => {
+          // Riproduzione avviata con successo: il canale è libero
+          console.log(`[AudioEngine] Gong eseguito correttamente: ${savedSound}`);
+        })
+        .catch((error) => {
+          // !!! CUORE DEL FIX: MECCANISMO DI SELF-HEALING !!!
+          // Catturiamo il rifiuto dell'OS (causato da Spotify/Apple Music)
+          console.warn(
+            "[AudioEngine] Riproduzione interrotta o negata dal focus audio dell'OS:",
+            error.message
+          );
+          
+          // Bonifichiamo istantaneamente l'istanza corrotta per evitare il deadlock della serie successiva
+          audio.pause();
+          audio.currentTime = 0;
+          audio.remove(); // Forza la rimozione dal DOM invisibile e il garbage collection
         });
-      }
-    } catch (fallbackError) {
-      console.error("Errore critico audio nativo:", fallbackError);
     }
-  } else {
-    // Piano di emergenza estremo
-    try {
-      const emergencyAudio = new Audio(fullUrl);
-      emergencyAudio.volume = volumeValue;
-      emergencyAudio.play().catch(e => console.error("Emergenza audio fallita:", e));
-    } catch (e) {}
+  } catch (e) {
+    console.error("[AudioEngine] Errore critico non gestito nel thread audio:", e);
   }
 };

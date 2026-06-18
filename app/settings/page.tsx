@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Moon, Sun, LogOut, Edit3, Check, X, Camera, Volume2, Bug, Send } from "lucide-react";
+import { ChevronLeft, Moon, Sun, LogOut, Edit3, Check, X, Camera, Volume2, VolumeX, Bug, Send } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 
 // === SPINNER A CERCHIO CONTINUO ===
@@ -31,7 +31,7 @@ export default function SettingsPage() {
   
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [selectedSound, setSelectedSound] = useState<string>(SOUND_OPTIONS[0].id);
-  const [volume, setVolume] = useState<number>(1.0); // Stato per il volume (0.0 a 1.0)
+  const [volume, setVolume] = useState<number>(1.0); 
   const [nickname, setNickname] = useState<string>("");
   const [email, setEmail] = useState<string>("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -42,7 +42,6 @@ export default function SettingsPage() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
-  // STATI PER SEGNALAZIONE BUG
   const [bugDescription, setBugDescription] = useState("");
   const [isSendingBug, setIsSendingBug] = useState(false);
   const [bugSuccess, setBugSuccess] = useState(false);
@@ -94,19 +93,17 @@ export default function SettingsPage() {
   const handleSoundSelect = (soundId: string, currentVolume = volume) => {
     setSelectedSound(soundId);
     localStorage.setItem("gymking_sound", soundId);
-    const audio = new Audio(`/${soundId}`);
-    audio.volume = currentVolume;
-    audio.play().catch(e => console.error("Errore audio:", e));
+    if (currentVolume > 0) {
+      const audio = new Audio(`/${soundId}`);
+      audio.volume = currentVolume;
+      audio.play().catch(e => console.error("Errore audio:", e));
+    }
   };
 
   const handleVolumeChange = (newVolume: number) => {
     setVolume(newVolume);
     localStorage.setItem("gymking_volume", String(newVolume));
-  };
-
-  // Riproduce il suono di prova al rilascio dello slider per validare il volume scelto
-  const handleVolumeChangeEnd = () => {
-    handleSoundSelect(selectedSound, volume);
+    handleSoundSelect(selectedSound, newVolume);
   };
 
   const handleUpdateNickname = async () => {
@@ -267,49 +264,65 @@ export default function SettingsPage() {
             </button>
           </div>
 
-          {/* TIMER SOUND & VOLUME SELECTOR */}
-          <div className="w-full bg-surface border-2 border-line p-6 flex flex-col gap-5 shadow-[6px_6px_0px_#000000] dark:shadow-[6px_6px_0px_#804CD9] mt-2">
-            <div className="flex items-center gap-4">
-              <Volume2 className="text-brand" size={28} strokeWidth={2.5} />
-              <span className="text-main font-black uppercase tracking-widest text-lg">Timer Audio</span>
+          {/* TIMER SOUND & VOLUME VU METER */}
+          <div className="w-full bg-surface border-4 border-line shadow-[6px_6px_0px_#000000] dark:shadow-[6px_6px_0px_#804CD9] mt-2 overflow-hidden flex flex-col">
+            <div className="p-6 border-b-4 border-line flex items-center gap-4 bg-base">
+              {volume === 0 ? <VolumeX className="text-muted" size={28} strokeWidth={2.5} /> : <Volume2 className="text-brand" size={28} strokeWidth={2.5} />}
+              <span className="text-main font-black uppercase tracking-widest text-lg">Allert Recupero</span>
             </div>
             
-            {/* GRIGLIA SELEZIONE SUONO */}
-            <div className="grid grid-cols-2 gap-3">
-              {SOUND_OPTIONS.map((sound) => (
-                <button
-                  key={sound.id}
-                  onClick={() => handleSoundSelect(sound.id)}
-                  className={`py-4 border-2 border-line font-black uppercase tracking-widest text-sm transition-all outline-none ${
-                    selectedSound === sound.id
-                      ? 'bg-brand text-base shadow-[inset_4px_4px_0px_rgba(0,0,0,0.2)] translate-y-[2px] translate-x-[2px]'
-                      : 'bg-base text-main shadow-[4px_4px_0px_#000000] dark:shadow-[4px_4px_0px_#804CD9] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none hover:bg-surface'
-                  }`}
-                >
-                  {sound.label}
-                </button>
-              ))}
+            {/* SELETTORE A SCATTO VERTICALE */}
+            <div className="flex flex-col bg-surface">
+              {SOUND_OPTIONS.map((sound) => {
+                const isActive = selectedSound === sound.id;
+                return (
+                  <button
+                    key={sound.id}
+                    onClick={() => handleSoundSelect(sound.id)}
+                    className={`flex items-center justify-between p-5 border-b-2 border-line transition-all outline-none last:border-b-0
+                      ${isActive ? 'bg-brand text-base shadow-[inset_4px_4px_0px_rgba(0,0,0,0.15)]' : 'bg-surface text-main hover:bg-base'}`}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className={`w-5 h-5 border-2 border-line flex items-center justify-center transition-colors ${isActive ? 'bg-base' : 'bg-transparent'}`}>
+                        {isActive && <div className="w-2 h-2 bg-brand" />}
+                      </div>
+                      <span className="font-black uppercase tracking-widest text-sm">{sound.label}</span>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
 
-            {/* CONTROLLO REGOLAZIONE VOLUME BRUTALISTA */}
-            <div className="flex flex-col gap-2 mt-2 border-t-2 border-line border-dashed pt-4">
+            {/* VU METER VOLUME (BLOCCHI DISCRETI) */}
+            <div className="p-6 bg-base border-t-4 border-line flex flex-col gap-4">
               <div className="flex justify-between items-center text-xs font-black uppercase tracking-widest text-main">
-                <span>Volume Allerta</span>
-                <span className="font-mono bg-base px-2 py-0.5 border border-line">{Math.round(volume * 100)}%</span>
+                <span>Livello Audio</span>
+                <span className="font-mono bg-surface px-3 py-1 border-2 border-line shadow-[2px_2px_0px_#000000]">{Math.round(volume * 100)}%</span>
               </div>
-              <input 
-                type="range" 
-                min="0" 
-                max="1" 
-                step="0.05" 
-                value={volume} 
-                onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
-                onMouseUp={handleVolumeChangeEnd}
-                onTouchEnd={handleVolumeChangeEnd}
-                className="w-full h-8 bg-base border-2 border-line outline-none appearance-none cursor-pointer accent-brand transition-all 
-                  [&::-webkit-slider-runnable-track]:bg-transparent 
-                  [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-main [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-line [&::-webkit-slider-thumb]:shadow-[2px_2px_0px_#000000]"
-              />
+              
+              <div className="flex w-full h-12 gap-1 p-1 bg-surface border-4 border-line shadow-[inset_2px_2px_0px_rgba(0,0,0,0.2)]">
+                {/* Tasto Mute esplicito per azzerare il volume */}
+                <button 
+                  onClick={() => handleVolumeChange(0)}
+                  className={`w-12 shrink-0 flex items-center justify-center border-2 border-line transition-colors outline-none
+                    ${volume === 0 ? 'bg-[#ff331f] text-white shadow-[inset_2px_2px_0px_rgba(255,255,255,0.3)]' : 'bg-base text-muted hover:text-main'}`}
+                >
+                  <VolumeX size={16} strokeWidth={3} />
+                </button>
+
+                {/* Blocchi VU (10% - 100%) */}
+                {[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0].map((level) => {
+                  const isActive = volume >= level;
+                  return (
+                    <button
+                      key={level}
+                      onClick={() => handleVolumeChange(level)}
+                      className={`flex-1 border-2 border-line transition-all outline-none 
+                        ${isActive ? 'bg-brand shadow-[inset_2px_2px_0px_rgba(255,255,255,0.3)]' : 'bg-base hover:bg-line/10'}`}
+                    />
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>
@@ -353,7 +366,7 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* LOGOUT ORIGINALE */}
+        {/* LOGOUT */}
         <div className="mt-4">
           <button 
             onClick={handleLogout} 

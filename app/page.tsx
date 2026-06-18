@@ -4,15 +4,14 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { AlertTriangle, Play, Trash2 } from 'lucide-react';
+import { AlertTriangle, Play, Trash2, Settings } from 'lucide-react';
 
-const menuItems = [
+const mainMenuItems = [
   { title: "Start Workout", href: "/start-workout" },
   { title: "Create Template", href: "/create-template" },
   { title: "Hub", href: "/hub" }, 
   { title: "Statistics", href: "/statistics" },
   { title: "Nutrition", href: "/nutrition" },
-  { title: "Settings", href: "/settings" }, 
 ];
 
 export default function Home() {
@@ -20,42 +19,35 @@ export default function Home() {
   const [nickname, setNickname] = useState<string>("");
   const [showRescueModal, setShowRescueModal] = useState(false);
   
-  // IL MURO DI CEMENTO: Parte bloccato di default
   const [isAuthenticating, setIsAuthenticating] = useState(true);
 
   useEffect(() => {
     const initializeApp = async () => {
-      // 1. Interrogazione rigorosa della sessione
       const { data: { session }, error } = await supabase.auth.getSession();
       
-      // Se non c'è sessione, eject immediato. 
-      // Il return impedisce allo script di proseguire e sbloccare la UI.
       if (!session || error) {
         router.replace('/login');
         return; 
       }
 
-      // 2. Se siamo qui, il token è valido. Estraiamo i dati.
       if (session.user.user_metadata?.nickname) {
         setNickname(session.user.user_metadata.nickname);
       }
 
-      // 3. Controllo Sessioni Sospese (Rescue Pop-up)
       const savedWorkout = localStorage.getItem("gymking_active_workout");
       if (savedWorkout) {
         setShowRescueModal(true);
       }
 
-      // 4. Tutto confermato. Abbassiamo il ponte levatoio.
       setIsAuthenticating(false);
     };
 
     initializeApp();
   }, [router]);
 
-    const handleResumeWorkout = () => {
+  const handleResumeWorkout = () => {
     setShowRescueModal(false);
-    router.push("/active-workout?resume=true"); // <-- FIX 1
+    router.push("/active-workout?resume=true");
   };
 
   const handleDiscardWorkout = () => {
@@ -63,11 +55,9 @@ export default function Home() {
     setShowRescueModal(false);
   };
 
-  // === RENDERING CONDIZIONALE DI BLOCCO ===
-  // Finché isAuthenticating è true, il resto del codice non esiste per il DOM.
   if (isAuthenticating) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-base text-main relative overflow-hidden">
+      <main className="flex h-[100dvh] items-center justify-center bg-base text-main relative overflow-hidden">
         <div className="flex flex-col items-center gap-6 z-10">
           <div className="w-16 h-16 relative flex items-center justify-center animate-pulse">
              <img src="/logoG.png" alt="Caricamento" className="w-full h-full object-contain dark:hidden" />
@@ -79,9 +69,8 @@ export default function Home() {
     );
   }
 
-  // === UI PRINCIPALE (Accessibile solo se autenticati) ===
   return (
-    <main className="flex min-h-screen flex-col items-center justify-start pt-16 px-4 transition-colors duration-300 relative overflow-x-hidden bg-base">
+    <main className="flex h-[100dvh] flex-col items-center pt-8 px-4 pb-6 transition-colors duration-300 relative overflow-hidden bg-base">
       
       {/* GHIRIGORI DECORATIVI */}
       <div className="absolute top-12 left-[-10%] w-64 h-64 opacity-30 dark:opacity-10 pointer-events-none">
@@ -96,38 +85,51 @@ export default function Home() {
       </div>
 
       {/* HEADER */}
-      <div className="w-full max-w-md flex flex-col items-center gap-2 mb-12 pb-8 border-b-4 border-line transition-colors duration-300 relative z-10">
-        <h1 className="font-heading text-6xl font-black tracking-tighter uppercase transition-colors duration-300">
+      <div className="w-full max-w-md shrink-0 flex flex-col items-center gap-2 mb-4 pb-6 border-b-4 border-line transition-colors duration-300 relative z-10">
+        <h1 className="font-heading text-5xl sm:text-6xl font-black tracking-tighter uppercase transition-colors duration-300">
            <span className="text-main">GYM</span>
            <span className="text-brand">KING</span>
         </h1>
         
-        <span className="text-sm font-black uppercase tracking-widest text-muted mt-1 bg-surface px-4 py-1 border-2 border-line shadow-[2px_2px_0px_#000000] dark:shadow-[2px_2px_0px_#804CD9]">
+        <span className="text-[10px] sm:text-xs font-black uppercase tracking-widest text-muted mt-1 bg-surface px-4 py-1 border-2 border-line shadow-[2px_2px_0px_#000000] dark:shadow-[2px_2px_0px_#804CD9]">
           BENTORNATO, {nickname || "RE"}
         </span>
 
-        <div className="w-48 h-48 relative flex items-center justify-center mt-4">
+        <div className="w-32 h-32 relative flex items-center justify-center mt-2">
            <img src="/logoG.png" alt="King Gym Logo Chiaro" className="w-full h-full object-contain dark:hidden scale-125" />
            <img src="/logo.png" alt="King Gym Logo Scuro" className="w-full h-full object-contain hidden dark:block scale-125" />
         </div>
       </div>
 
-      {/* MENU BUTTONS */}
-      <div className="w-full max-w-md flex flex-col gap-6 mt-2 relative z-10">
-        {menuItems.map((item, index) => (
-          <Link href={item.href} key={index} className="group outline-none">
-            <div className="w-full py-5 px-6 bg-base border-2 border-line 
-                            shadow-[4px_4px_0px_#000000] dark:shadow-[4px_4px_0px_#804CD9]
+      {/* MENU DINAMICO ORA TOTALMENTE UNIFORME */}
+      <div className="w-full max-w-md flex-1 overflow-y-auto flex flex-col gap-4 relative z-10 pb-4 scrollbar-hide">
+        {mainMenuItems.map((item, index) => (
+          <Link href={item.href} key={index} className="group outline-none shrink-0">
+            <div className="w-full py-4 px-6 bg-surface border-2 border-line 
+                            shadow-[4px_4px_0px_#000000] dark:shadow-[4px_4px_0px_#804CD9] 
                             transition-all duration-200 
                             group-hover:translate-x-[2px] group-hover:translate-y-[2px] 
-                            group-hover:shadow-[2px_2px_0px_#000000] dark:group-hover:shadow-[2px_2px_0px_#804CD9]
-                            active:translate-x-[4px] active:translate-y-[4px] active:shadow-none">
-              <span className="font-sans text-xl font-bold uppercase tracking-widest text-main transition-colors duration-300">
+                            group-hover:shadow-[2px_2px_0px_#000000] dark:group-hover:shadow-[2px_2px_0px_#804CD9] 
+                            active:translate-x-[4px] active:translate-y-[4px] active:shadow-none 
+                            flex items-center justify-between">
+              <span className="font-sans text-lg font-black uppercase tracking-widest text-main transition-colors duration-300">
                 {item.title}
               </span>
             </div>
           </Link>
         ))}
+      </div>
+
+      {/* FOOTER ANCORATO */}
+      <div className="w-full max-w-md shrink-0 pt-4 border-t-4 border-line relative z-10 mt-auto bg-base">
+        <Link href="/settings" className="w-full group outline-none flex">
+          <div className="w-full py-3 px-6 bg-surface border-2 border-line shadow-[4px_4px_0px_#000000] transition-all duration-200 group-hover:bg-main group-hover:text-base active:translate-x-[4px] active:translate-y-[4px] active:shadow-none flex justify-center items-center gap-2">
+             <Settings size={18} strokeWidth={2.5} className="text-muted group-hover:text-base transition-colors" />
+             <span className="font-sans text-sm font-black uppercase tracking-widest text-muted group-hover:text-base transition-colors duration-300">
+                Impostazioni
+             </span>
+          </div>
+        </Link>
       </div>
 
       {/* MODALE RESCUE (ALLENAMENTO SOSPESO) */}
@@ -148,14 +150,14 @@ export default function Home() {
             <div className="flex flex-col gap-3 mt-4">
               <button 
                 onClick={handleResumeWorkout}
-                className="w-full py-5 bg-brand border-2 border-line text-base font-black uppercase tracking-widest shadow-[4px_4px_0px_#000000] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none transition-all flex items-center justify-center gap-2"
+                className="w-full py-5 bg-brand border-2 border-line text-base font-black uppercase tracking-widest shadow-[4px_4px_0px_#000000] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none transition-all flex items-center justify-center gap-2 outline-none"
               >
                 <Play size={20} strokeWidth={3} /> RIPRENDI
               </button>
               
               <button 
                 onClick={handleDiscardWorkout}
-                className="w-full py-4 bg-surface border-2 border-line text-main font-black uppercase tracking-widest shadow-[4px_4px_0px_#000000] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none transition-all flex items-center justify-center gap-2 hover:bg-[#ff331f] hover:text-white"
+                className="w-full py-4 bg-surface border-2 border-line text-main font-black uppercase tracking-widest shadow-[4px_4px_0px_#000000] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none transition-all flex items-center justify-center gap-2 hover:bg-[#ff331f] hover:text-white outline-none"
               >
                 <Trash2 size={18} strokeWidth={2.5} /> ANNULLA SESSIONE
               </button>

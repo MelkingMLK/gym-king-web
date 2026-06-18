@@ -35,13 +35,13 @@ export default function NutritionWIPPage() {
 
         <div className="flex flex-col gap-2 mt-2">
           <h1 className="font-heading text-4xl font-black uppercase text-base tracking-tighter leading-none">
-            Nutritio<br/>In Cantiere
+            Work in Progress
           </h1>
 
         </div>
 
         <p className="text-sm font-bold bg-surface text-main border-2 border-line p-4 mt-2 shadow-[4px_4px_0px_#000000]">
-          L'infrastruttura è attualmente in fase di ingegnerizzazione.
+          L'infrastruttura è attualmente in fase di realizzazione.
         </p>
 
         <Link href="/" className="w-full mt-2">
