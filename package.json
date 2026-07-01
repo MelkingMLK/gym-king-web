@@ -2,12 +2,12 @@
   "name": "gym-king-web",
   "version": "0.1.0",
   "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
-  },
+"scripts": {
+  "dev": "next dev",
+  "build": "next build --webpack",
+  "start": "next start",
+  "lint": "next lint"
+},
   "dependencies": {
     "@capacitor/android": "^8.3.4",
     "@ducanh2912/next-pwa": "^10.2.9",
