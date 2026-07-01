@@ -2,12 +2,13 @@
   "name": "gym-king-web",
   "version": "0.1.0",
   "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build --webpack",
-    "start": "next start",
-    "lint": "next lint"
-  },
+ "scripts": {
+  "dev": "next dev",
+  "build": "opennextjs-cloudflare build",
+  "start": "next start",
+  "deploy": "opennextjs-cloudflare deploy",
+  "lint": "next lint"
+},
   "dependencies": {
     "@capacitor/android": "^8.3.4",
     "@supabase/supabase-js": "^2.105.1",
