@@ -16,6 +16,9 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  // Aggiunta cruciale per Netlify
+  basePath: "", 
+  assetPrefix: "./",
 };
 
 export default withPWA(nextConfig);
