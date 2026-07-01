@@ -10,7 +10,7 @@ const withPWA = withPWAInit({
 
 const nextConfig: NextConfig = {
   // --- CONFIGURAZIONE PER ESPORTAZIONE STATICA ---
-  output: "export",
+
   
   // Fondamentale: forza Next.js a generare cartelle con index.html 
   // anziché file .html isolati, risolvendo i 404 nei router statici.
